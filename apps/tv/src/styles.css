@@ -194,7 +194,7 @@ input {
   flex: 1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(0, 1fr));
   gap: clamp(8px, 0.85vw, 14px);
   min-height: 0;
   overflow: hidden;
@@ -255,8 +255,28 @@ input {
 
 .tv-mode-switch {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.tv-local-actions {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tv-local-actions p {
+  min-height: 18px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--gc-yellow);
+  font-family: var(--gc-font-display);
+  font-size: clamp(10px, 0.78vw, 13px);
+  font-weight: 900;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .tv-stage .gc-logo-tv {

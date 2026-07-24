@@ -1,8 +1,15 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Gamepad2, MessageCircle, UsersRound, Vote } from "lucide-react";
 import {
-  mockRoomSnapshot,
-  mockVoteRoomSnapshot,
+  castNextLocalHostVote,
+  createLocalLobbyRoom,
+  getNextPreviewPlayer,
+  joinLocalPlayer,
+  quickMessageOptions,
+  removeLocalPlayer,
+  requestLocalHost,
+  sendLocalMessage,
+  type LobbyActionResult,
   type RoomSnapshot
 } from "@group-crash/protocol";
 import {
@@ -32,12 +39,10 @@ function getInitialTvMode(): TvMode {
 }
 
 export function App() {
-  const [mode, setMode] = useState<TvMode>(getInitialTvMode);
-
-  const room = useMemo<RoomSnapshot>(
-    () => (mode === "vote" ? mockVoteRoomSnapshot : mockRoomSnapshot),
-    [mode]
+  const [room, setRoom] = useState<RoomSnapshot>(() =>
+    createLocalLobbyRoom(getInitialTvMode())
   );
+  const [notice, setNotice] = useState("Local lobby simulation is active.");
 
   const host = room.players.find((player) => player.id === room.hostPlayerId);
   const hostCandidates = room.players.filter(
@@ -46,6 +51,90 @@ export function App() {
   const visibleMessages = room.activeHostVote
     ? room.messages.slice(0, 3)
     : room.messages;
+  const nextPreviewPlayer = getNextPreviewPlayer(room);
+
+  function applyLocalAction(result: LobbyActionResult) {
+    setRoom(result.room);
+    setNotice(result.notice);
+  }
+
+  function addPreviewPlayer() {
+    if (!nextPreviewPlayer) {
+      applyLocalAction({
+        room,
+        notice: "No more preview players are waiting.",
+        status: "blocked"
+      });
+      return;
+    }
+
+    applyLocalAction(joinLocalPlayer(room, nextPreviewPlayer));
+  }
+
+  function removePreviewPlayer() {
+    const removablePlayer = [...room.players]
+      .reverse()
+      .find((player) => !player.isHost);
+
+    if (!removablePlayer) {
+      applyLocalAction({
+        room,
+        notice: "No regular player can leave right now.",
+        status: "blocked"
+      });
+      return;
+    }
+
+    applyLocalAction(removeLocalPlayer(room, removablePlayer.id));
+  }
+
+  function sendPreviewShout() {
+    const sender =
+      room.players.find(
+        (player) => player.connectionStatus === "connected" && !player.isHost
+      ) ?? host;
+    const message =
+      quickMessageOptions[room.messages.length % quickMessageOptions.length];
+
+    if (!sender) {
+      applyLocalAction({
+        room,
+        notice: "No connected player can shout right now.",
+        status: "blocked"
+      });
+      return;
+    }
+
+    applyLocalAction(sendLocalMessage(room, sender.id, message));
+  }
+
+  function requestPreviewHost() {
+    const requester =
+      hostCandidates.find((player) => player.connectionStatus === "connected") ??
+      room.players.find(
+        (player) => player.connectionStatus === "connected" && !player.isHost
+      );
+
+    if (!requester) {
+      applyLocalAction({
+        room,
+        notice: "No eligible player can request host.",
+        status: "blocked"
+      });
+      return;
+    }
+
+    applyLocalAction(requestLocalHost(room, requester.id));
+  }
+
+  function castPreviewYesVote() {
+    applyLocalAction(castNextLocalHostVote(room, "yes"));
+  }
+
+  function resetPreviewRoom() {
+    setRoom(createLocalLobbyRoom(getInitialTvMode()));
+    setNotice("Local lobby simulation reset.");
+  }
 
   return (
     <main className="tv-stage">
@@ -72,19 +161,40 @@ export function App() {
             subtitle="The host will choose from this shelf once games are installed."
             icon={<Gamepad2 aria-hidden="true" />}
           />
-          <div className="tv-mode-switch" aria-label="Prototype state">
-            <Button
-              variant={mode === "lobby" ? "primary" : "secondary"}
-              onClick={() => setMode("lobby")}
-            >
-              Live lobby
-            </Button>
-            <Button
-              variant={mode === "vote" ? "primary" : "secondary"}
-              onClick={() => setMode("vote")}
-            >
-              Vote state
-            </Button>
+          <div className="tv-local-actions" aria-label="Local lobby controls">
+            <p aria-live="polite">{notice}</p>
+            <div className="tv-mode-switch">
+              <Button
+                disabled={!nextPreviewPlayer || room.players.length >= room.maxPlayers}
+                onClick={addPreviewPlayer}
+                variant="secondary"
+              >
+                Join
+              </Button>
+              <Button onClick={removePreviewPlayer} variant="secondary">
+                Leave
+              </Button>
+              <Button onClick={sendPreviewShout} variant="secondary">
+                Shout
+              </Button>
+              <Button
+                disabled={Boolean(room.activeHostVote)}
+                onClick={requestPreviewHost}
+                variant="secondary"
+              >
+                Host
+              </Button>
+              <Button
+                disabled={!room.activeHostVote}
+                onClick={castPreviewYesVote}
+                variant="primary"
+              >
+                Vote
+              </Button>
+              <Button onClick={resetPreviewRoom} variant="secondary">
+                Reset
+              </Button>
+            </div>
           </div>
         </aside>
 

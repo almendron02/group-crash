@@ -105,4 +105,4 @@ group-crash/
 
 ## Current Status
 
-Milestone 1 is in progress. The monorepo is scaffolded with static TV and phone lobby screens using mocked room data. Multiplayer is intentionally not implemented yet.
+Milestone 2 is in progress. The monorepo includes static TV and phone lobby screens plus local in-memory lobby actions for joins, leaves, shouts, host requests, votes, and host transfer. Multiplayer is intentionally not implemented yet.

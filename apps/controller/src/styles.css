@@ -193,6 +193,19 @@ input {
   border-radius: var(--gc-radius-lg);
 }
 
+.phone-feedback {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--gc-ink);
+  background: var(--gc-yellow);
+  border: 2px solid var(--gc-ink);
+  border-radius: var(--gc-radius-md);
+  font-family: var(--gc-font-display);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
 .section-label {
   display: flex;
   align-items: center;
@@ -234,4 +247,3 @@ input {
     padding: 0;
   }
 }
-

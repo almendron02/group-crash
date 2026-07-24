@@ -10,8 +10,14 @@ import {
 } from "lucide-react";
 import {
   avatarOptions,
-  mockRoomSnapshot,
-  mockVoteRoomSnapshot,
+  castLocalHostVote,
+  castNextLocalHostVote,
+  createLocalLobbyRoom,
+  passLocalHost,
+  quickMessageOptions,
+  requestLocalHost,
+  sendLocalMessage,
+  updateLocalPlayerProfile,
   type ChessAvatar
 } from "@group-crash/protocol";
 import {
@@ -27,30 +33,112 @@ import {
 
 type Screen = "name" | "avatar" | "role" | "player" | "host" | "vote";
 
-const quickMessages = ["Ready!", "Let's go!", "I call host!", "Start soon!"];
+const currentPlayerId = "maya";
 
 export function App() {
   const [screen, setScreen] = useState<Screen>("name");
+  const [room, setRoom] = useState(() => createLocalLobbyRoom());
   const [playerName, setPlayerName] = useState("Maya");
   const [avatar, setAvatar] = useState<ChessAvatar>("queen");
   const [wantsHost, setWantsHost] = useState(false);
   const [sentMessage, setSentMessage] = useState("Ready!");
+  const [feedback, setFeedback] = useState("Local lobby controls ready.");
 
-  const room = screen === "vote" ? mockVoteRoomSnapshot : mockRoomSnapshot;
   const currentHost = room.players.find((player) => player.isHost);
 
   const currentPlayer = useMemo(
-    () => ({
-      id: "preview-player",
-      name: playerName.trim() || "Maya",
-      avatar,
-      connectionStatus: "connected" as const,
-      isHost: screen === "host",
-      wantsHost,
-      joinedAt: Date.now()
-    }),
-    [avatar, playerName, screen, wantsHost]
+    () =>
+      room.players.find((player) => player.id === currentPlayerId) ?? {
+        id: currentPlayerId,
+        name: playerName.trim() || "Maya",
+        avatar,
+        connectionStatus: "connected" as const,
+        isHost: screen === "host",
+        wantsHost,
+        joinedAt: Date.now()
+      },
+    [avatar, playerName, room.players, screen, wantsHost]
   );
+
+  function applyLocalAction(result: {
+    notice: string;
+    room: typeof room;
+    status: "success" | "blocked";
+  }) {
+    setRoom(result.room);
+    setFeedback(result.notice);
+    return result.room;
+  }
+
+  function finishJoin() {
+    let nextRoom = applyLocalAction(
+      updateLocalPlayerProfile(room, currentPlayerId, {
+        avatar,
+        name: playerName
+      })
+    );
+
+    if (wantsHost) {
+      nextRoom = applyLocalAction(requestLocalHost(nextRoom, currentPlayerId));
+    }
+
+    const nextPlayer = nextRoom.players.find((player) => player.id === currentPlayerId);
+
+    if (nextPlayer?.isHost) {
+      setScreen("host");
+      return;
+    }
+
+    setScreen(nextRoom.activeHostVote ? "vote" : "player");
+  }
+
+  function sendSelectedMessage() {
+    applyLocalAction(sendLocalMessage(room, currentPlayerId, sentMessage));
+  }
+
+  function requestHostFromPhone() {
+    const nextRoom = applyLocalAction(requestLocalHost(room, currentPlayerId));
+    const nextPlayer = nextRoom.players.find((player) => player.id === currentPlayerId);
+
+    if (nextPlayer?.isHost) {
+      setScreen("host");
+      return;
+    }
+
+    setScreen(nextRoom.activeHostVote ? "vote" : "player");
+  }
+
+  function castPhoneVote(vote: "yes" | "no") {
+    const activeVote = room.activeHostVote;
+
+    if (!activeVote) {
+      setFeedback("No host vote is active.");
+      setScreen("player");
+      return;
+    }
+
+    const playerAlreadyVoted =
+      activeVote.yesPlayerIds.includes(currentPlayerId) ||
+      activeVote.noPlayerIds.includes(currentPlayerId);
+    const result = playerAlreadyVoted
+      ? castNextLocalHostVote(room, vote)
+      : castLocalHostVote(room, currentPlayerId, vote);
+    const nextRoom = applyLocalAction(result);
+    const nextPlayer = nextRoom.players.find((player) => player.id === currentPlayerId);
+
+    if (nextPlayer?.isHost) {
+      setScreen("host");
+      return;
+    }
+
+    setScreen(nextRoom.activeHostVote ? "vote" : "player");
+  }
+
+  function passHostFromPhone() {
+    const nextRoom = applyLocalAction(passLocalHost(room));
+    const nextPlayer = nextRoom.players.find((player) => player.id === currentPlayerId);
+    setScreen(nextPlayer?.isHost ? "host" : "player");
+  }
 
   return (
     <main className="controller-stage">
@@ -156,7 +244,7 @@ export function App() {
               <Button
                 variant="primary"
                 icon={<DoorOpen aria-hidden="true" />}
-                onClick={() => setScreen(wantsHost ? "vote" : "player")}
+                onClick={finishJoin}
               >
                 Join room
               </Button>
@@ -168,25 +256,30 @@ export function App() {
           <LobbyController
             player={currentPlayer}
             hostName={currentHost?.name ?? "Alex"}
+            feedback={feedback}
             sentMessage={sentMessage}
             setSentMessage={setSentMessage}
-            onRequestHost={() => setScreen("vote")}
-            onBecomeHost={() => setScreen("host")}
+            onRequestHost={requestHostFromPhone}
+            onSendMessage={sendSelectedMessage}
+            voteActive={Boolean(room.activeHostVote)}
           />
         ) : null}
 
         {screen === "host" ? (
           <HostController
             player={currentPlayer}
-            onPassHost={() => setScreen("player")}
+            feedback={feedback}
+            onPassHost={passHostFromPhone}
           />
         ) : null}
 
         {screen === "vote" ? (
           <VoteController
             player={currentPlayer}
-            onVoteYes={() => setScreen("host")}
-            onVoteNo={() => setScreen("player")}
+            feedback={feedback}
+            room={room}
+            onVoteYes={() => castPhoneVote("yes")}
+            onVoteNo={() => castPhoneVote("no")}
           />
         ) : null}
       </PhoneShell>
@@ -200,19 +293,23 @@ interface LobbyControllerProps {
     avatar: ChessAvatar;
   };
   hostName: string;
+  feedback: string;
   sentMessage: string;
   setSentMessage: (message: string) => void;
   onRequestHost: () => void;
-  onBecomeHost: () => void;
+  onSendMessage: () => void;
+  voteActive: boolean;
 }
 
 function LobbyController({
+  feedback,
   player,
   hostName,
   sentMessage,
   setSentMessage,
   onRequestHost,
-  onBecomeHost
+  onSendMessage,
+  voteActive
 }: LobbyControllerProps) {
   return (
     <section className="phone-card lobby-card">
@@ -238,7 +335,7 @@ function LobbyController({
           <span>Quick messages</span>
         </div>
         <div className="quick-grid">
-          {quickMessages.map((message) => (
+          {quickMessageOptions.slice(0, 4).map((message) => (
             <button
               className="quick-message-button"
               key={message}
@@ -252,22 +349,24 @@ function LobbyController({
         <Button
           variant="secondary"
           icon={<Send aria-hidden="true" />}
-          onClick={() => setSentMessage("Can't wait!")}
+          onClick={onSendMessage}
         >
           Send to TV
         </Button>
       </div>
 
+      <p className="phone-feedback" aria-live="polite">
+        {feedback}
+      </p>
+
       <div className="phone-actions">
         <Button
+          disabled={voteActive}
           variant="primary"
           icon={<Vote aria-hidden="true" />}
           onClick={onRequestHost}
         >
           Request host
-        </Button>
-        <Button variant="secondary" onClick={onBecomeHost}>
-          Preview host
         </Button>
       </div>
     </section>
@@ -279,10 +378,11 @@ interface HostControllerProps {
     name: string;
     avatar: ChessAvatar;
   };
+  feedback: string;
   onPassHost: () => void;
 }
 
-function HostController({ player, onPassHost }: HostControllerProps) {
+function HostController({ feedback, player, onPassHost }: HostControllerProps) {
   return (
     <section className="phone-card lobby-card">
       <div className="player-strip">
@@ -310,6 +410,9 @@ function HostController({ player, onPassHost }: HostControllerProps) {
           Pass host
         </Button>
       </div>
+      <p className="phone-feedback" aria-live="polite">
+        {feedback}
+      </p>
     </section>
   );
 }
@@ -319,11 +422,15 @@ interface VoteControllerProps {
     name: string;
     avatar: ChessAvatar;
   };
+  feedback: string;
+  room: ReturnType<typeof createLocalLobbyRoom>;
   onVoteYes: () => void;
   onVoteNo: () => void;
 }
 
-function VoteController({ player, onVoteYes, onVoteNo }: VoteControllerProps) {
+function VoteController({ feedback, player, room, onVoteYes, onVoteNo }: VoteControllerProps) {
+  const activeVote = room.activeHostVote;
+
   return (
     <section className="phone-card lobby-card vote-card">
       <div className="player-strip">
@@ -334,21 +441,27 @@ function VoteController({ player, onVoteYes, onVoteNo }: VoteControllerProps) {
         </div>
       </div>
 
-      <HostVotePanel
-        vote={mockVoteRoomSnapshot.activeHostVote!}
-        players={mockVoteRoomSnapshot.players}
-        size="phone"
-      />
+      {activeVote ? (
+        <HostVotePanel vote={activeVote} players={room.players} size="phone" />
+      ) : (
+        <div className="host-summary">
+          <Badge tone="yellow">No vote active</Badge>
+          <p>Request host to open a room vote.</p>
+        </div>
+      )}
+
+      <p className="phone-feedback" aria-live="polite">
+        {feedback}
+      </p>
 
       <div className="phone-actions split">
-        <Button variant="secondary" onClick={onVoteNo}>
+        <Button disabled={!activeVote} variant="secondary" onClick={onVoteNo}>
           Vote no
         </Button>
-        <Button variant="primary" onClick={onVoteYes}>
+        <Button disabled={!activeVote} variant="primary" onClick={onVoteYes}>
           Vote yes
         </Button>
       </div>
     </section>
   );
 }
-
