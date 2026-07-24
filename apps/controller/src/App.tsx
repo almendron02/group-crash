@@ -309,6 +309,34 @@ export function App() {
     });
   }
 
+  function leaveRoomFromPhone() {
+    if (!playerSession) {
+      setFeedback("You are not in a room right now.");
+      setScreen("name");
+      return;
+    }
+
+    const leavingRoomCode = playerSession.roomCode;
+
+    sendEvent({
+      type: "room.leave",
+      payload: {
+        playerId: playerSession.playerId,
+        roomCode: playerSession.roomCode
+      }
+    });
+
+    window.localStorage.removeItem(storageKey);
+    setHasJoined(false);
+    setPlayerSession(null);
+    setRoom(null);
+    setPassTargetPlayerId("");
+    setWantsHost(false);
+    setRoomCode(leavingRoomCode);
+    setFeedback("Left the room. You can join again whenever.");
+    setScreen("name");
+  }
+
   return (
     <main className="controller-stage">
       <PhoneShell>
@@ -449,6 +477,7 @@ export function App() {
             roomCode={roomCode}
             sentMessage={sentMessage}
             setSentMessage={setSentMessage}
+            onLeaveRoom={leaveRoomFromPhone}
             onRequestHost={requestHostFromPhone}
             onSendMessage={sendSelectedMessage}
             voteActive={Boolean(room?.activeHostVote)}
@@ -464,6 +493,7 @@ export function App() {
             sentMessage={sentMessage}
             setPassTargetPlayerId={setPassTargetPlayerId}
             setSentMessage={setSentMessage}
+            onLeaveRoom={leaveRoomFromPhone}
             onSendMessage={sendSelectedMessage}
             onPassHost={passHostFromPhone}
           />
@@ -474,6 +504,7 @@ export function App() {
             player={currentPlayer}
             feedback={feedback}
             room={room}
+            onLeaveRoom={leaveRoomFromPhone}
             onVoteYes={() => castPhoneVote("yes")}
             onVoteNo={() => castPhoneVote("no")}
           />
@@ -497,6 +528,7 @@ interface LobbyControllerProps {
   roomCode: string;
   sentMessage: string;
   setSentMessage: (message: string) => void;
+  onLeaveRoom: () => void;
   onRequestHost: () => void;
   onSendMessage: () => void;
   voteActive: boolean;
@@ -509,6 +541,7 @@ function LobbyController({
   roomCode,
   sentMessage,
   setSentMessage,
+  onLeaveRoom,
   onRequestHost,
   onSendMessage,
   voteActive
@@ -541,7 +574,7 @@ function LobbyController({
         {feedback}
       </p>
 
-      <div className="phone-actions">
+      <div className="phone-actions split">
         <Button
           disabled={voteActive}
           variant="primary"
@@ -549,6 +582,9 @@ function LobbyController({
           onClick={onRequestHost}
         >
           Request host
+        </Button>
+        <Button variant="destructive" onClick={onLeaveRoom}>
+          Leave room
         </Button>
       </div>
     </section>
@@ -566,6 +602,7 @@ interface HostControllerProps {
   sentMessage: string;
   setPassTargetPlayerId: (playerId: string) => void;
   setSentMessage: (message: string) => void;
+  onLeaveRoom: () => void;
   onSendMessage: () => void;
   onPassHost: () => void;
 }
@@ -578,6 +615,7 @@ function HostController({
   sentMessage,
   setPassTargetPlayerId,
   setSentMessage,
+  onLeaveRoom,
   onPassHost,
   onSendMessage
 }: HostControllerProps) {
@@ -643,6 +681,9 @@ function HostController({
       <p className="phone-feedback" aria-live="polite">
         {feedback}
       </p>
+      <Button variant="destructive" onClick={onLeaveRoom}>
+        Leave room
+      </Button>
     </section>
   );
 }
@@ -694,11 +735,19 @@ interface VoteControllerProps {
   };
   feedback: string;
   room: RoomSnapshot | null;
+  onLeaveRoom: () => void;
   onVoteYes: () => void;
   onVoteNo: () => void;
 }
 
-function VoteController({ feedback, player, room, onVoteYes, onVoteNo }: VoteControllerProps) {
+function VoteController({
+  feedback,
+  player,
+  room,
+  onLeaveRoom,
+  onVoteYes,
+  onVoteNo
+}: VoteControllerProps) {
   const activeVote = room?.activeHostVote;
 
   return (
@@ -732,6 +781,9 @@ function VoteController({ feedback, player, room, onVoteYes, onVoteNo }: VoteCon
           Vote yes
         </Button>
       </div>
+      <Button variant="destructive" onClick={onLeaveRoom}>
+        Leave room
+      </Button>
     </section>
   );
 }

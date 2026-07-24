@@ -195,13 +195,13 @@ input {
 }
 
 .host-card {
-  gap: 12px;
+  gap: 10px;
 }
 
 .host-card .gc-empty-game,
 .host-card .pass-host-card,
 .host-card .quick-message-card {
-  padding: 12px;
+  padding: 10px;
 }
 
 .host-card .gc-empty-game {
@@ -219,13 +219,13 @@ input {
 }
 
 .host-card .quick-grid {
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 7px;
+  margin-bottom: 8px;
 }
 
 .host-card .quick-message-button {
-  padding: 8px;
-  font-size: 13px;
+  padding: 7px;
+  font-size: 12px;
 }
 
 .target-select {
@@ -290,6 +290,14 @@ input {
 
 .host-controls {
   margin-top: 0;
+}
+
+.host-card .host-controls {
+  gap: 8px;
+}
+
+.host-card .phone-feedback {
+  padding: 8px 10px;
 }
 
 .vote-card .gc-vote-panel {

@@ -15,6 +15,7 @@ The lobby MVP includes:
 - Live connected player list on the TV
 - Current host indicator
 - Host request and majority host-transfer vote
+- Voluntary room leave with automatic host reassignment
 - Quick messages from phones to the TV lobby
 - Empty game library state
 - Server-authoritative room state

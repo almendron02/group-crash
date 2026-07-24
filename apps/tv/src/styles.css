@@ -178,16 +178,25 @@ input {
 .host-callout {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  max-width: min(220px, 22vw);
-  padding: 7px 11px 7px 7px;
+  align-self: flex-start;
+  gap: 10px;
+  min-height: clamp(46px, 4.2vw, 62px);
+  max-width: min(330px, 30vw);
+  margin-top: clamp(8px, 0.8vw, 14px);
+  padding: 8px 15px 9px 8px;
   background: var(--gc-yellow);
   border: 2px solid var(--gc-ink);
   border-radius: var(--gc-radius-pill);
   font-family: var(--gc-font-display);
-  font-size: clamp(13px, 1.05vw, 17px);
+  font-size: clamp(14px, 1.16vw, 20px);
   font-weight: 900;
-  line-height: 1;
+  line-height: 1.12;
+}
+
+.host-callout span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .player-grid {
@@ -375,7 +384,7 @@ input {
 }
 
 .tv-stage .gc-crown {
-  top: -9px;
+  top: clamp(11px, 1vw, 17px);
   right: 14px;
   width: clamp(30px, 2.45vw, 40px);
   height: clamp(30px, 2.45vw, 40px);
