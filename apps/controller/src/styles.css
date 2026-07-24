@@ -186,11 +186,65 @@ input {
 }
 
 .host-summary,
+.pass-host-card,
 .quick-message-card {
   padding: 16px;
   background: var(--gc-white);
   border: 3px solid var(--gc-ink);
   border-radius: var(--gc-radius-lg);
+}
+
+.host-card {
+  gap: 12px;
+}
+
+.host-card .gc-empty-game,
+.host-card .pass-host-card,
+.host-card .quick-message-card {
+  padding: 12px;
+}
+
+.host-card .gc-empty-game {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+.host-card .gc-empty-game h2 {
+  font-size: 22px;
+}
+
+.host-card .gc-empty-game p {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.host-card .quick-grid {
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.host-card .quick-message-button {
+  padding: 8px;
+  font-size: 13px;
+}
+
+.target-select {
+  width: 100%;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  color: var(--gc-ink);
+  background: var(--gc-yellow);
+  border: 3px solid var(--gc-ink);
+  border-radius: var(--gc-radius-md);
+  font-family: var(--gc-font-display);
+  font-size: 18px;
+  font-weight: 900;
+  outline: none;
+}
+
+.target-select:focus {
+  box-shadow: 0 0 0 5px var(--gc-red);
 }
 
 .phone-feedback {

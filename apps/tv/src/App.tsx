@@ -109,9 +109,9 @@ export function App() {
   const hostCandidates = displayRoom.players.filter(
     (player) => player.wantsHost && !player.isHost
   );
-  const visibleMessages = displayRoom.activeHostVote
-    ? displayRoom.messages.slice(0, 3)
-    : displayRoom.messages;
+  const visibleMessages = [...displayRoom.messages]
+    .slice(displayRoom.activeHostVote ? -3 : -8)
+    .reverse();
   const roomIsLive = connectionStatus === "connected";
 
   return (

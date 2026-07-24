@@ -14,6 +14,7 @@ import {
   type ChessAvatar,
   type ClientEvent,
   type PlayerSessionPayload,
+  type PublicPlayer,
   type RoomSnapshot,
   type ServerEvent
 } from "@group-crash/protocol";
@@ -80,6 +81,7 @@ export function App() {
   const [wantsHost, setWantsHost] = useState(false);
   const [sentMessage, setSentMessage] = useState("Ready!");
   const [feedback, setFeedback] = useState("Connect to a TV room to join.");
+  const [passTargetPlayerId, setPassTargetPlayerId] = useState("");
 
   useEffect(() => {
     const webSocket = new WebSocket(getSocketUrl());
@@ -169,18 +171,39 @@ export function App() {
       return;
     }
 
+    if (room.activeHostVote?.eligiblePlayerIds.includes(player.id)) {
+      setScreen("vote");
+      return;
+    }
+
     if (player.isHost) {
       setScreen("host");
       return;
     }
 
-    if (room.activeHostVote) {
-      setScreen("vote");
+    setScreen("player");
+  }, [hasJoined, playerSession, room]);
+
+  const passTargets = useMemo(
+    () =>
+      room?.players.filter(
+        (player) =>
+          player.id !== playerSession?.playerId &&
+          player.connectionStatus === "connected"
+      ) ?? [],
+    [playerSession?.playerId, room?.players]
+  );
+
+  useEffect(() => {
+    if (passTargets.length === 0) {
+      setPassTargetPlayerId("");
       return;
     }
 
-    setScreen("player");
-  }, [hasJoined, playerSession, room]);
+    if (!passTargets.some((player) => player.id === passTargetPlayerId)) {
+      setPassTargetPlayerId(passTargets[0].id);
+    }
+  }, [passTargetPlayerId, passTargets]);
 
   function sendEvent(event: ClientEvent) {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -271,11 +294,17 @@ export function App() {
       return;
     }
 
+    if (!passTargetPlayerId) {
+      setFeedback("Choose who should become host first.");
+      return;
+    }
+
     sendEvent({
       type: "host.pass",
       payload: {
         hostPlayerId: playerSession.playerId,
-        roomCode: playerSession.roomCode
+        roomCode: playerSession.roomCode,
+        targetPlayerId: passTargetPlayerId
       }
     });
   }
@@ -430,6 +459,12 @@ export function App() {
           <HostController
             player={currentPlayer}
             feedback={feedback}
+            passTargetPlayerId={passTargetPlayerId}
+            passTargets={passTargets}
+            sentMessage={sentMessage}
+            setPassTargetPlayerId={setPassTargetPlayerId}
+            setSentMessage={setSentMessage}
+            onSendMessage={sendSelectedMessage}
             onPassHost={passHostFromPhone}
           />
         ) : null}
@@ -496,31 +531,11 @@ function LobbyController({
         <p>Only the host can choose games. The room can vote to switch.</p>
       </div>
 
-      <div className="quick-message-card">
-        <div className="section-label">
-          <MessageCircle aria-hidden="true" />
-          <span>Quick messages</span>
-        </div>
-        <div className="quick-grid">
-          {quickMessageOptions.slice(0, 4).map((message) => (
-            <button
-              className="quick-message-button"
-              key={message}
-              data-selected={sentMessage === message}
-              onClick={() => setSentMessage(message)}
-            >
-              {message}
-            </button>
-          ))}
-        </div>
-        <Button
-          variant="secondary"
-          icon={<Send aria-hidden="true" />}
-          onClick={onSendMessage}
-        >
-          Send to TV
-        </Button>
-      </div>
+      <QuickMessageControls
+        sentMessage={sentMessage}
+        setSentMessage={setSentMessage}
+        onSendMessage={onSendMessage}
+      />
 
       <p className="phone-feedback" aria-live="polite">
         {feedback}
@@ -546,12 +561,28 @@ interface HostControllerProps {
     avatar: ChessAvatar;
   };
   feedback: string;
+  passTargetPlayerId: string;
+  passTargets: PublicPlayer[];
+  sentMessage: string;
+  setPassTargetPlayerId: (playerId: string) => void;
+  setSentMessage: (message: string) => void;
+  onSendMessage: () => void;
   onPassHost: () => void;
 }
 
-function HostController({ feedback, player, onPassHost }: HostControllerProps) {
+function HostController({
+  feedback,
+  passTargetPlayerId,
+  passTargets,
+  player,
+  sentMessage,
+  setPassTargetPlayerId,
+  setSentMessage,
+  onPassHost,
+  onSendMessage
+}: HostControllerProps) {
   return (
-    <section className="phone-card lobby-card">
+    <section className="phone-card lobby-card host-card">
       <div className="player-strip">
         <ChessAvatarBadge avatar={player.avatar} selected size="sm" />
         <div>
@@ -569,11 +600,43 @@ function HostController({ feedback, player, onPassHost }: HostControllerProps) {
         icon={<Gamepad2 aria-hidden="true" />}
       />
 
+      <QuickMessageControls
+        sentMessage={sentMessage}
+        setSentMessage={setSentMessage}
+        onSendMessage={onSendMessage}
+      />
+
+      <div className="pass-host-card">
+        <div className="section-label">
+          <Crown aria-hidden="true" />
+          <span>Pass host to</span>
+        </div>
+        <select
+          className="target-select"
+          disabled={passTargets.length === 0}
+          value={passTargetPlayerId}
+          onChange={(event) => setPassTargetPlayerId(event.target.value)}
+        >
+          {passTargets.length === 0 ? (
+            <option value="">No players available</option>
+          ) : null}
+          {passTargets.map((target) => (
+            <option key={target.id} value={target.id}>
+              {target.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="host-controls">
         <Button variant="primary" disabled icon={<Gamepad2 aria-hidden="true" />}>
           Start game
         </Button>
-        <Button variant="secondary" onClick={onPassHost}>
+        <Button
+          disabled={passTargets.length === 0}
+          variant="secondary"
+          onClick={onPassHost}
+        >
           Pass host
         </Button>
       </div>
@@ -581,6 +644,46 @@ function HostController({ feedback, player, onPassHost }: HostControllerProps) {
         {feedback}
       </p>
     </section>
+  );
+}
+
+interface QuickMessageControlsProps {
+  sentMessage: string;
+  setSentMessage: (message: string) => void;
+  onSendMessage: () => void;
+}
+
+function QuickMessageControls({
+  sentMessage,
+  setSentMessage,
+  onSendMessage
+}: QuickMessageControlsProps) {
+  return (
+    <div className="quick-message-card">
+      <div className="section-label">
+        <MessageCircle aria-hidden="true" />
+        <span>Quick messages</span>
+      </div>
+      <div className="quick-grid">
+        {quickMessageOptions.slice(0, 4).map((message) => (
+          <button
+            className="quick-message-button"
+            key={message}
+            data-selected={sentMessage === message}
+            onClick={() => setSentMessage(message)}
+          >
+            {message}
+          </button>
+        ))}
+      </div>
+      <Button
+        variant="secondary"
+        icon={<Send aria-hidden="true" />}
+        onClick={onSendMessage}
+      >
+        Send to TV
+      </Button>
+    </div>
   );
 }
 
