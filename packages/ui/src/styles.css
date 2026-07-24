@@ -231,23 +231,20 @@
   font-weight: 900;
 }
 
-.gc-faux-qr {
+.gc-qr {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 5px;
   aspect-ratio: 1;
-  padding: 14px;
   background: var(--gc-white);
   border: 3px solid var(--gc-ink);
   border-radius: var(--gc-radius-md);
+  overflow: hidden;
 }
 
-.gc-faux-qr span {
-  border-radius: 4px;
+.gc-qr span {
   background: transparent;
 }
 
-.gc-faux-qr span[data-on="true"] {
+.gc-qr span[data-on="true"] {
   background: var(--gc-ink);
 }
 
@@ -497,4 +494,3 @@
     border-radius: 0;
   }
 }
-

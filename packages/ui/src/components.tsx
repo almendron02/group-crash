@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Crown, ScanLine, Sparkles } from "lucide-react";
 import type { ChessAvatar as ChessAvatarName, HostVote, LobbyMessage, PublicPlayer } from "@group-crash/protocol";
+import { createQrMatrix } from "./qr";
 
 const chessGlyphs: Record<ChessAvatarName, string> = {
   pawn: "♟",
@@ -107,6 +108,8 @@ export function RoomCodePill({ code }: { code: string }) {
 }
 
 export function QrCard({ roomCode, joinUrl }: { roomCode: string; joinUrl: string }) {
+  const qr = createQrMatrix(joinUrl);
+
   return (
     <section className="gc-qr-card" aria-label="Join room">
       <div className="gc-qr-header">
@@ -115,9 +118,14 @@ export function QrCard({ roomCode, joinUrl }: { roomCode: string; joinUrl: strin
         </Badge>
         <strong>{roomCode}</strong>
       </div>
-      <div className="gc-faux-qr" aria-hidden="true">
-        {Array.from({ length: 49 }, (_, index) => (
-          <span key={index} data-on={(index * 7 + index) % 5 !== 0} />
+      <div
+        className="gc-qr"
+        role="img"
+        aria-label={`QR code for ${joinUrl}`}
+        style={{ gridTemplateColumns: `repeat(${qr.size}, 1fr)` }}
+      >
+        {qr.modules.map((dark, index) => (
+          <span key={index} data-on={dark} />
         ))}
       </div>
       <p>{joinUrl}</p>
@@ -221,4 +229,3 @@ export function PhoneShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
-
