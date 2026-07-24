@@ -105,4 +105,4 @@ group-crash/
 
 ## Current Status
 
-Milestone 2 is in progress. The monorepo includes static TV and phone lobby screens plus local in-memory lobby actions for joins, leaves, shouts, host requests, votes, and host transfer. Multiplayer is intentionally not implemented yet.
+Milestone 2 is in progress. The monorepo includes static TV and phone lobby screens plus local in-memory lobby actions for joins, leaves, shouts, host requests, votes, and host transfer. The TV lobby is display-only; player actions live in the phone controller flow. Multiplayer is intentionally not implemented yet.
