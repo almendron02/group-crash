@@ -105,4 +105,4 @@ group-crash/
 
 ## Current Status
 
-Starter documentation is complete. Application code has not been scaffolded yet.
+Milestone 1 is in progress. The monorepo is scaffolded with static TV and phone lobby screens using mocked room data. Multiplayer is intentionally not implemented yet.

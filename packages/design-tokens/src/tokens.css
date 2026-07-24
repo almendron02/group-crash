@@ -1,0 +1,41 @@
+:root {
+  --gc-red: #e62727;
+  --gc-yellow: #fff200;
+  --gc-cream: #fff8ed;
+  --gc-ink: #291313;
+  --gc-white: #ffffff;
+
+  --gc-font-display: "Fredoka", "Arial Rounded MT Bold", "Nunito", ui-rounded, system-ui, sans-serif;
+  --gc-font-interface: "Nunito", "Arial Rounded MT Bold", ui-rounded, system-ui, sans-serif;
+
+  --gc-space-1: 4px;
+  --gc-space-2: 8px;
+  --gc-space-3: 12px;
+  --gc-space-4: 16px;
+  --gc-space-6: 24px;
+  --gc-space-8: 32px;
+  --gc-space-12: 48px;
+  --gc-space-16: 64px;
+
+  --gc-radius-sm: 12px;
+  --gc-radius-md: 20px;
+  --gc-radius-lg: 32px;
+  --gc-radius-pill: 999px;
+
+  --gc-border-standard: 2px;
+  --gc-border-emphasis: 4px;
+  --gc-border-focus: 6px;
+
+  --gc-shadow-panel: 8px 8px 0 var(--gc-ink);
+  --gc-shadow-small: 4px 4px 0 var(--gc-ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--gc-font-interface);
+  background: var(--gc-red);
+}
+
