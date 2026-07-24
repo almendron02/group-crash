@@ -1,6 +1,10 @@
+import { useEffect, useMemo, useState } from "react";
 import { Gamepad2, MessageCircle, UsersRound, Vote } from "lucide-react";
 import {
-  createLocalLobbyRoom
+  createEmptyRoomSnapshot,
+  type RoomCreatedPayload,
+  type RoomSnapshot,
+  type ServerEvent
 } from "@group-crash/protocol";
 import {
   Badge,
@@ -15,27 +19,100 @@ import {
   StatusPill
 } from "@group-crash/ui";
 
-type TvMode = "lobby" | "vote";
+type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
-function getInitialTvMode(): TvMode {
+function getInitialRoomCode() {
   if (typeof window === "undefined") {
-    return "lobby";
+    return null;
   }
 
-  return new URLSearchParams(window.location.search).get("state") === "vote"
-    ? "vote"
-    : "lobby";
+  const roomCode = new URLSearchParams(window.location.search).get("room");
+  return roomCode?.trim().toUpperCase() || null;
+}
+
+function getSocketUrl() {
+  const configuredUrl = import.meta.env.VITE_GROUP_CRASH_WS_URL as string | undefined;
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.hostname}:3001`;
+}
+
+function getControllerJoinUrl(roomCode: string) {
+  const configuredUrl = import.meta.env.VITE_GROUP_CRASH_CONTROLLER_URL as string | undefined;
+  const origin = configuredUrl || `${window.location.protocol}//${window.location.hostname}:5174`;
+  return `${origin}/?room=${roomCode}`;
 }
 
 export function App() {
-  const room = createLocalLobbyRoom(getInitialTvMode());
-  const host = room.players.find((player) => player.id === room.hostPlayerId);
-  const hostCandidates = room.players.filter(
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("connecting");
+  const [createdRoom, setCreatedRoom] = useState<RoomCreatedPayload | null>(null);
+  const [room, setRoom] = useState<RoomSnapshot | null>(null);
+
+  useEffect(() => {
+    const socket = new WebSocket(getSocketUrl());
+    const initialRoomCode = getInitialRoomCode();
+
+    socket.addEventListener("open", () => {
+      setConnectionStatus("connected");
+      socket.send(
+        JSON.stringify(
+          initialRoomCode
+            ? { type: "room.watch", payload: { roomCode: initialRoomCode } }
+            : { type: "room.create", payload: {} }
+        )
+      );
+    });
+
+    socket.addEventListener("message", (message) => {
+      const event = JSON.parse(String(message.data)) as ServerEvent;
+
+      if (event.type === "room.created") {
+        setCreatedRoom(event.payload);
+        return;
+      }
+
+      if (event.type === "room.snapshot") {
+        setRoom(event.payload);
+        return;
+      }
+
+      if (event.type === "error" && event.payload.code === "ROOM_NOT_FOUND") {
+        socket.send(JSON.stringify({ type: "room.create", payload: {} }));
+      }
+    });
+
+    socket.addEventListener("close", () => setConnectionStatus("disconnected"));
+    socket.addEventListener("error", () => setConnectionStatus("disconnected"));
+
+    return () => socket.close();
+  }, []);
+
+  const displayRoom = useMemo(
+    () =>
+      room ??
+      createEmptyRoomSnapshot({
+        roomCode: createdRoom?.roomCode ?? "----",
+        roomId: createdRoom?.roomId ?? "pending"
+      }),
+    [createdRoom, room]
+  );
+  const roomCode = displayRoom.roomCode;
+  const joinUrl = createdRoom?.joinUrl ?? getControllerJoinUrl(roomCode);
+  const host = displayRoom.players.find(
+    (player) => player.id === displayRoom.hostPlayerId
+  );
+  const hostCandidates = displayRoom.players.filter(
     (player) => player.wantsHost && !player.isHost
   );
-  const visibleMessages = room.activeHostVote
-    ? room.messages.slice(0, 3)
-    : room.messages;
+  const visibleMessages = displayRoom.activeHostVote
+    ? displayRoom.messages.slice(0, 3)
+    : displayRoom.messages;
+  const roomIsLive = connectionStatus === "connected";
 
   return (
     <main className="tv-stage">
@@ -48,14 +125,14 @@ export function App() {
           <LogoMark size="tv" />
           <p className="tv-kicker">Second-screen party lobby</p>
         </div>
-        <RoomCodePill code={room.roomCode} />
+        <RoomCodePill code={roomCode} />
       </section>
 
       <section className="tv-layout" aria-label="Live lobby">
         <aside className="tv-join">
           <QrCard
-            roomCode={room.roomCode}
-            joinUrl="groupcrash.app/join/K7P4"
+            roomCode={roomCode}
+            joinUrl={joinUrl}
           />
           <EmptyGameCard
             title="No games added yet"
@@ -68,7 +145,7 @@ export function App() {
           <div className="panel-heading">
             <div>
               <Badge tone="yellow" icon={<UsersRound aria-hidden="true" />}>
-                {room.playerCount}/{room.maxPlayers} joined
+                {displayRoom.playerCount}/{displayRoom.maxPlayers} joined
               </Badge>
               <h1>Crash Crew</h1>
             </div>
@@ -81,7 +158,7 @@ export function App() {
           </div>
 
           <div className="player-grid">
-            {room.players.map((player) => (
+            {displayRoom.players.map((player) => (
               <PlayerCard key={player.id} player={player} />
             ))}
           </div>
@@ -93,7 +170,9 @@ export function App() {
               <Badge tone="cream" icon={<MessageCircle aria-hidden="true" />}>
                 Live shouts
               </Badge>
-              <StatusPill status="connected">Room is live</StatusPill>
+              <StatusPill status={roomIsLive ? "connected" : "disconnected"}>
+                {roomIsLive ? "Room is live" : "Connecting"}
+              </StatusPill>
             </div>
             <div className="message-stack" aria-label="Lobby messages">
               {visibleMessages.map((message) => (
@@ -119,10 +198,10 @@ export function App() {
             </div>
           </div>
 
-          {room.activeHostVote ? (
+          {displayRoom.activeHostVote ? (
             <HostVotePanel
-              vote={room.activeHostVote}
-              players={room.players}
+              vote={displayRoom.activeHostVote}
+              players={displayRoom.players}
               size="tv"
             />
           ) : null}

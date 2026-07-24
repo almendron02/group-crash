@@ -57,7 +57,7 @@ TV web app
         | WebSocket
         v
 Authoritative multiplayer server
-  Node.js + TypeScript + Socket.IO/Fastify
+  Node.js + TypeScript + WebSocket
         ^
         | WebSocket
         |
@@ -97,12 +97,12 @@ group-crash/
 
 1. Build static TV and phone lobby screens from mocked data.
 2. Add local lobby interaction without networking.
-3. Define shared protocol types and Zod schemas.
-4. Connect TV and phones through the server.
-5. Add reconnects, rate limits, room expiration, and tests.
+3. Connect TV and phones through the server.
+4. Harden reconnect grace, room expiration, and tests.
+5. Add runtime schema validation.
 6. Add a game module contract after the lobby is stable.
 7. Package the TV client for Google TV after the browser version works reliably.
 
 ## Current Status
 
-Milestone 2 is in progress. The monorepo includes static TV and phone lobby screens plus local in-memory lobby actions for joins, leaves, shouts, host requests, votes, and host transfer. The TV lobby is display-only; player actions live in the phone controller flow. Multiplayer is intentionally not implemented yet.
+Milestone 3 is in progress. The TV and phone controller now connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, and host transfer. The TV lobby remains display-only; player actions live in the phone controller flow. No games are implemented yet.

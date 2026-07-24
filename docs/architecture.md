@@ -23,11 +23,11 @@ Recommended MVP stack:
 - React for TV and phone apps
 - Vite for frontend builds
 - Node.js for the server
-- Socket.IO for real-time communication
-- Zod for runtime validation
+- WebSocket for real-time communication
+- Zod for future runtime validation
 - pnpm workspaces for the monorepo
 
-Database, Redis, auth, and Android TV packaging come later.
+Database, Redis, auth, formal schema validation, and Android TV packaging come later.
 
 ## Initial Monorepo Shape
 
@@ -149,4 +149,3 @@ Planned approach:
 - Use the wrapper for launch, full-screen mode, D-pad/back behavior, app icons, banners, and Google Play packaging.
 
 Do not start with native Android implementation.
-

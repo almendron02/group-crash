@@ -56,6 +56,10 @@ export interface CreateRoomPayload {
   displayName?: string;
 }
 
+export interface WatchRoomPayload {
+  roomCode: string;
+}
+
 export interface JoinRoomPayload {
   roomCode: string;
   name: string;
@@ -100,6 +104,7 @@ export interface PassHostPayload {
 
 export type ClientEvent =
   | { type: "room.create"; payload: CreateRoomPayload }
+  | { type: "room.watch"; payload: WatchRoomPayload }
   | { type: "room.join"; payload: JoinRoomPayload }
   | { type: "room.reconnect"; payload: ReconnectPayload }
   | { type: "room.leave"; payload: LeaveRoomPayload }
@@ -118,6 +123,12 @@ export interface RoomCreatedPayload {
 export interface PlayerStatusPayload {
   roomCode: string;
   playerId: string;
+}
+
+export interface PlayerSessionPayload {
+  roomCode: string;
+  playerId: string;
+  reconnectToken: string;
 }
 
 export interface HostChangedPayload {
@@ -161,6 +172,7 @@ export interface ServerErrorPayload {
 export type ServerEvent =
   | { type: "room.created"; payload: RoomCreatedPayload }
   | { type: "room.snapshot"; payload: RoomSnapshot }
+  | { type: "player.session"; payload: PlayerSessionPayload }
   | { type: "player.joined"; payload: PublicPlayer }
   | { type: "player.disconnected"; payload: PlayerStatusPayload }
   | { type: "player.reconnected"; payload: PlayerStatusPayload }
@@ -327,6 +339,29 @@ const previewBenchPlayers: JoinLocalPlayerInput[] = [
   { id: "ivy", name: "Ivy", avatar: "rook", wantsHost: true },
   { id: "ren", name: "Ren", avatar: "pawn" }
 ];
+
+export function createEmptyRoomSnapshot({
+  maxPlayers = 8,
+  roomCode,
+  roomId
+}: {
+  maxPlayers?: number;
+  roomCode: string;
+  roomId: string;
+}): RoomSnapshot {
+  return {
+    roomId,
+    roomCode,
+    status: "lobby",
+    hostPlayerId: null,
+    players: [],
+    messages: [],
+    activeHostVote: null,
+    playerCount: 0,
+    maxPlayers,
+    gamesAvailable: false
+  };
+}
 
 export function createLocalLobbyRoom(state: "lobby" | "vote" = "lobby"): RoomSnapshot {
   return normalizeRoom(state === "vote" ? mockVoteRoomSnapshot : mockRoomSnapshot);

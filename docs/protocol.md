@@ -71,6 +71,7 @@ Phone and TV clients send these events to the server.
 ```ts
 export type ClientEvent =
   | { type: "room.create"; payload: CreateRoomPayload }
+  | { type: "room.watch"; payload: WatchRoomPayload }
   | { type: "room.join"; payload: JoinRoomPayload }
   | { type: "room.reconnect"; payload: ReconnectPayload }
   | { type: "room.leave"; payload: LeaveRoomPayload }
@@ -85,6 +86,10 @@ Payloads:
 ```ts
 export interface CreateRoomPayload {
   displayName?: string;
+}
+
+export interface WatchRoomPayload {
+  roomCode: string;
 }
 
 export interface JoinRoomPayload {
@@ -138,6 +143,7 @@ The server sends these events to TV and phone clients.
 export type ServerEvent =
   | { type: "room.created"; payload: RoomCreatedPayload }
   | { type: "room.snapshot"; payload: RoomSnapshot }
+  | { type: "player.session"; payload: PlayerSessionPayload }
   | { type: "player.joined"; payload: PublicPlayer }
   | { type: "player.disconnected"; payload: PlayerStatusPayload }
   | { type: "player.reconnected"; payload: PlayerStatusPayload }
@@ -163,6 +169,12 @@ export interface RoomCreatedPayload {
 export interface PlayerStatusPayload {
   roomCode: string;
   playerId: string;
+}
+
+export interface PlayerSessionPayload {
+  roomCode: string;
+  playerId: string;
+  reconnectToken: string;
 }
 
 export interface HostChangedPayload {
@@ -209,4 +221,3 @@ export interface ServerErrorPayload {
 After any accepted action changes room state, the server should send a fresh `room.snapshot` to relevant clients.
 
 For future games, use separate public TV snapshots and private player snapshots.
-
