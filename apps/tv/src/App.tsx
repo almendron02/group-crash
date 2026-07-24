@@ -21,8 +21,18 @@ import {
 
 type TvMode = "lobby" | "vote";
 
+function getInitialTvMode(): TvMode {
+  if (typeof window === "undefined") {
+    return "lobby";
+  }
+
+  return new URLSearchParams(window.location.search).get("state") === "vote"
+    ? "vote"
+    : "lobby";
+}
+
 export function App() {
-  const [mode, setMode] = useState<TvMode>("lobby");
+  const [mode, setMode] = useState<TvMode>(getInitialTvMode);
 
   const room = useMemo<RoomSnapshot>(
     () => (mode === "vote" ? mockVoteRoomSnapshot : mockRoomSnapshot),
@@ -33,6 +43,9 @@ export function App() {
   const hostCandidates = room.players.filter(
     (player) => player.wantsHost && !player.isHost
   );
+  const visibleMessages = room.activeHostVote
+    ? room.messages.slice(0, 3)
+    : room.messages;
 
   return (
     <main className="tv-stage">
@@ -107,7 +120,7 @@ export function App() {
               <StatusPill status="connected">Room is live</StatusPill>
             </div>
             <div className="message-stack" aria-label="Lobby messages">
-              {room.messages.map((message) => (
+              {visibleMessages.map((message) => (
                 <ChatMessage key={message.id} message={message} />
               ))}
             </div>
@@ -142,4 +155,3 @@ export function App() {
     </main>
   );
 }
-

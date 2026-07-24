@@ -1,10 +1,17 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 100vw;
   min-height: 100vh;
   background: var(--gc-red);
   color: var(--gc-cream);
-  overflow: hidden;
 }
 
 button,
@@ -14,9 +21,13 @@ input {
 
 .tv-stage {
   position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: clamp(12px, 1.25vw, 22px);
   width: 100vw;
-  min-height: 100vh;
-  padding: clamp(32px, 4.4vw, 84px);
+  height: 100vh;
+  min-height: 0;
+  padding: clamp(18px, 2.4vw, 46px);
   box-sizing: border-box;
   background:
     radial-gradient(circle at 9% 14%, rgba(255, 242, 0, 0.18), transparent 13%),
@@ -27,9 +38,9 @@ input {
 .tv-stage::after {
   content: "";
   position: absolute;
-  inset: 3.5vw;
-  border: 4px solid rgba(255, 248, 237, 0.24);
-  border-radius: 36px;
+  inset: clamp(14px, 1.8vw, 34px);
+  border: 3px solid rgba(255, 248, 237, 0.24);
+  border-radius: 28px;
   pointer-events: none;
 }
 
@@ -41,8 +52,8 @@ input {
 .tv-symbol-star {
   top: 10%;
   right: 21%;
-  width: 64px;
-  height: 64px;
+  width: clamp(36px, 3.2vw, 58px);
+  height: clamp(36px, 3.2vw, 58px);
   background: var(--gc-yellow);
   clip-path: polygon(
     50% 0,
@@ -61,9 +72,9 @@ input {
 .tv-symbol-ring {
   right: 5%;
   bottom: 11%;
-  width: 180px;
-  height: 88px;
-  border: 8px solid rgba(255, 248, 237, 0.55);
+  width: clamp(110px, 9.4vw, 170px);
+  height: clamp(52px, 4.6vw, 82px);
+  border: clamp(4px, 0.45vw, 8px) solid rgba(255, 248, 237, 0.55);
   border-radius: 50%;
   transform: rotate(-16deg);
 }
@@ -71,8 +82,8 @@ input {
 .tv-symbol-bolt {
   left: 3.6%;
   bottom: 17%;
-  width: 46px;
-  height: 90px;
+  width: clamp(26px, 2.4vw, 42px);
+  height: clamp(52px, 4.7vw, 82px);
   background: var(--gc-yellow);
   clip-path: polygon(55% 0, 100% 0, 65% 41%, 100% 41%, 32% 100%, 45% 55%, 0 55%);
 }
@@ -81,17 +92,17 @@ input {
   position: relative;
   z-index: 1;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 32px;
-  margin-bottom: 32px;
+  gap: clamp(16px, 2vw, 32px);
+  min-height: 0;
 }
 
 .tv-kicker {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   color: var(--gc-yellow);
   font-family: var(--gc-font-display);
-  font-size: clamp(22px, 2vw, 34px);
+  font-size: clamp(15px, 1.25vw, 24px);
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -101,133 +112,329 @@ input {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(260px, 0.78fr) minmax(560px, 1.62fr) minmax(360px, 1fr);
-  gap: clamp(20px, 2vw, 32px);
-  height: min(760px, calc(100vh - 220px));
-  min-height: 600px;
+  grid-template-columns: minmax(220px, 0.74fr) minmax(460px, 1.58fr) minmax(300px, 0.92fr);
+  gap: clamp(12px, 1.15vw, 22px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .tv-join,
 .tv-activity {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
+}
+
+.tv-join {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: clamp(10px, 1vw, 16px);
+}
+
+.tv-activity {
+  display: grid;
+  grid-template-rows: minmax(225px, 1fr) auto auto;
+  gap: clamp(10px, 1vw, 16px);
 }
 
 .panel {
   background: var(--gc-cream);
   color: var(--gc-ink);
-  border: var(--gc-border-emphasis) solid var(--gc-ink);
-  border-radius: var(--gc-radius-lg);
-  box-shadow: var(--gc-shadow-panel);
+  border: 3px solid var(--gc-ink);
+  border-radius: clamp(20px, 1.8vw, var(--gc-radius-lg));
+  box-shadow: 5px 5px 0 var(--gc-ink);
 }
 
 .tv-players {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   min-width: 0;
-  padding: clamp(24px, 2.2vw, 38px);
+  overflow: hidden;
+  padding: clamp(14px, 1.45vw, 28px);
 }
 
 .panel-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 24px;
+  gap: clamp(12px, 1.1vw, 20px);
+  margin-bottom: clamp(10px, 1vw, 18px);
 }
 
 .panel-heading.compact {
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: clamp(8px, 0.8vw, 14px);
 }
 
 .panel-heading h1 {
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   font-family: var(--gc-font-display);
-  font-size: clamp(48px, 5.4vw, 92px);
-  line-height: 0.86;
+  font-size: clamp(34px, 3.5vw, 64px);
+  line-height: 0.88;
   letter-spacing: 0;
 }
 
 .host-callout {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  max-width: 260px;
-  padding: 10px 14px 10px 10px;
+  gap: 8px;
+  max-width: min(220px, 22vw);
+  padding: 7px 11px 7px 7px;
   background: var(--gc-yellow);
-  border: 3px solid var(--gc-ink);
+  border: 2px solid var(--gc-ink);
   border-radius: var(--gc-radius-pill);
   font-family: var(--gc-font-display);
-  font-size: 18px;
+  font-size: clamp(13px, 1.05vw, 17px);
   font-weight: 900;
   line-height: 1;
 }
 
 .player-grid {
+  flex: 1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: clamp(8px, 0.85vw, 14px);
+  min-height: 0;
   overflow: hidden;
 }
 
 .activity-panel,
 .candidates-panel {
-  padding: 20px;
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(12px, 1.05vw, 18px);
 }
 
 .activity-panel {
-  min-height: 310px;
+  display: flex;
+  flex-direction: column;
 }
 
 .message-stack {
   display: grid;
-  gap: 12px;
+  gap: clamp(7px, 0.65vw, 11px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .candidate-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-wrap: nowrap;
+  gap: clamp(6px, 0.6vw, 10px);
 }
 
 .candidate-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px 8px 8px;
+  flex: 1 1 0;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 7px 5px 5px;
   background: var(--gc-white);
   border: 2px solid var(--gc-ink);
   border-radius: var(--gc-radius-pill);
+  font-size: clamp(11px, 0.82vw, 14px);
   font-weight: 900;
+}
+
+.candidate-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .candidate-chip strong {
   color: var(--gc-red);
-  font-size: 12px;
+  flex: 0 0 auto;
+  font-size: clamp(8px, 0.6vw, 10px);
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .tv-mode-switch {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
-@media (max-width: 1180px) {
-  body {
-    overflow: auto;
-  }
+.tv-stage .gc-logo-tv {
+  font-size: clamp(42px, 4.6vw, 86px);
+  text-shadow: 3px 3px 0 var(--gc-ink);
+}
 
-  .tv-stage {
-    overflow: auto;
-  }
+.tv-stage .gc-room-code {
+  min-width: clamp(150px, 12vw, 220px);
+  padding: clamp(10px, 1vw, 16px) clamp(14px, 1.35vw, 22px);
+  border-width: 3px;
+  border-radius: clamp(18px, 1.6vw, 28px);
+  box-shadow: 5px 5px 0 var(--gc-ink);
+}
 
+.tv-stage .gc-room-code span {
+  font-size: clamp(13px, 1.15vw, 20px);
+}
+
+.tv-stage .gc-room-code strong {
+  font-size: clamp(42px, 4.1vw, 78px);
+}
+
+.tv-stage .gc-qr-card,
+.tv-stage .gc-empty-game,
+.tv-stage .gc-vote-panel {
+  padding: clamp(12px, 1.1vw, 18px);
+  border-width: 3px;
+  border-radius: clamp(18px, 1.65vw, 28px);
+  box-shadow: 5px 5px 0 var(--gc-ink);
+}
+
+.tv-stage .gc-qr-card {
+  gap: clamp(8px, 0.75vw, 12px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tv-stage .gc-qr-header strong {
+  font-size: clamp(22px, 2.1vw, 34px);
+}
+
+.tv-stage .gc-faux-qr {
+  justify-self: center;
+  width: min(100%, 31vh);
+  max-height: 31vh;
+  gap: clamp(3px, 0.32vw, 5px);
+  padding: clamp(8px, 0.8vw, 13px);
+  border-width: 2px;
+  border-radius: clamp(12px, 1.1vw, 18px);
+}
+
+.tv-stage .gc-qr-card p {
+  font-size: clamp(12px, 0.95vw, 16px);
+}
+
+.tv-stage .gc-empty-game {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(8px, 0.8vw, 12px);
+}
+
+.tv-stage .gc-empty-icon {
+  width: clamp(38px, 3.1vw, 54px);
+  height: clamp(38px, 3.1vw, 54px);
+  border-width: 2px;
+}
+
+.tv-stage .gc-empty-icon svg {
+  width: clamp(20px, 1.8vw, 28px);
+  height: clamp(20px, 1.8vw, 28px);
+}
+
+.tv-stage .gc-empty-game h2 {
+  font-size: clamp(18px, 1.55vw, 28px);
+}
+
+.tv-stage .gc-empty-game p {
+  margin-top: 4px;
+  font-size: clamp(11px, 0.95vw, 14px);
+}
+
+.tv-stage .gc-button {
+  min-height: clamp(34px, 3.2vh, 44px);
+  padding: 8px 10px;
+  border-width: 2px;
+  font-size: clamp(10px, 0.82vw, 14px);
+}
+
+.tv-stage .gc-badge,
+.tv-stage .gc-status {
+  min-height: clamp(26px, 2.7vh, 34px);
+  padding: 5px 9px;
+  font-size: clamp(10px, 0.75vw, 13px);
+}
+
+.tv-stage .gc-avatar-xs {
+  width: clamp(24px, 2vw, 34px);
+  height: clamp(24px, 2vw, 34px);
+  font-size: clamp(17px, 1.45vw, 23px);
+}
+
+.tv-stage .gc-avatar-sm {
+  width: clamp(32px, 2.8vw, 46px);
+  height: clamp(32px, 2.8vw, 46px);
+  font-size: clamp(22px, 2vw, 32px);
+}
+
+.tv-stage .gc-avatar-lg {
+  width: clamp(48px, 4.2vw, 74px);
+  height: clamp(48px, 4.2vw, 74px);
+  font-size: clamp(34px, 3vw, 52px);
+}
+
+.tv-stage .gc-player-card {
+  min-height: 0;
+  gap: clamp(8px, 0.8vw, 12px);
+  padding: clamp(8px, 0.75vw, 12px);
+  border-width: 2px;
+  border-radius: clamp(18px, 1.65vw, 28px);
+}
+
+.tv-stage .gc-player-info strong {
+  font-size: clamp(21px, 1.85vw, 34px);
+}
+
+.tv-stage .gc-player-info span {
+  font-size: clamp(10px, 0.8vw, 13px);
+}
+
+.tv-stage .gc-crown {
+  top: -9px;
+  right: 14px;
+  width: clamp(30px, 2.45vw, 40px);
+  height: clamp(30px, 2.45vw, 40px);
+  border-width: 2px;
+}
+
+.tv-stage .gc-crown svg {
+  width: clamp(16px, 1.4vw, 22px);
+  height: clamp(16px, 1.4vw, 22px);
+}
+
+.tv-stage .gc-chat-message {
+  gap: 8px;
+  padding: clamp(5px, 0.5vw, 9px);
+  border-width: 2px;
+  border-radius: clamp(12px, 1.1vw, 18px);
+}
+
+.tv-stage .gc-chat-message strong {
+  font-size: clamp(11px, 0.8vw, 14px);
+}
+
+.tv-stage .gc-chat-message span {
+  font-size: clamp(13px, 1vw, 17px);
+}
+
+.tv-stage .gc-vote-panel {
+  gap: clamp(8px, 0.7vw, 12px);
+}
+
+.tv-stage .gc-vote-people {
+  font-size: clamp(19px, 1.65vw, 30px);
+}
+
+.tv-stage .gc-vote-progress {
+  height: clamp(14px, 1.35vw, 20px);
+  border-width: 2px;
+}
+
+.tv-stage .gc-vote-counts {
+  gap: 8px;
+  font-size: clamp(11px, 0.85vw, 14px);
+}
+
+@media (max-aspect-ratio: 15 / 9) {
   .tv-layout {
-    grid-template-columns: 1fr;
-    height: auto;
+    grid-template-columns: minmax(190px, 0.68fr) minmax(390px, 1.42fr) minmax(260px, 0.88fr);
   }
 }
-
