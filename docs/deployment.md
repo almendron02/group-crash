@@ -37,6 +37,50 @@ URL at runtime.
 Use the manual settings below only if you prefer creating each service one at a
 time.
 
+## Custom Domains
+
+If you want the public TV app to use the Forma domain, use:
+
+```text
+TV app: https://crash.formawebsite.com
+```
+
+Because the MVP deploys the TV app and phone controller as two separate static
+sites, the clean branded setup is:
+
+```text
+TV app: https://crash.formawebsite.com
+Phone controller: https://join.formawebsite.com
+Server: https://group-crash-server.onrender.com
+```
+
+You can keep the server on its Render URL. Players do not need to see it.
+
+In Render:
+
+1. Open `group-crash-tv` > Settings > Custom Domains.
+2. Add `crash.formawebsite.com`.
+3. Add the DNS `CNAME` record requested by Render.
+4. Open `group-crash-controller` > Settings > Custom Domains.
+5. Add `join.formawebsite.com`.
+6. Add the DNS `CNAME` record requested by Render.
+7. Update `group-crash-server`:
+
+```text
+CONTROLLER_ORIGIN=https://join.formawebsite.com
+```
+
+8. Update `group-crash-tv`:
+
+```text
+VITE_GROUP_CRASH_CONTROLLER_URL=https://join.formawebsite.com
+```
+
+If you only want to create one subdomain for now, use
+`crash.formawebsite.com` for the TV app and leave the controller on
+`https://group-crash-controller.onrender.com`. The QR code will still work, but
+players will see the Render controller URL after scanning.
+
 ## Service 1: Multiplayer Server
 
 Create a Render **Web Service**.
