@@ -10,7 +10,8 @@
     "dev": "pnpm --filter @group-crash/tv dev",
     "dev:tv": "pnpm --filter @group-crash/tv dev",
     "dev:controller": "pnpm --filter @group-crash/controller dev",
-    "dev:server": "pnpm --filter @group-crash/server dev"
+    "dev:server": "pnpm --filter @group-crash/server dev",
+    "test:integration": "pnpm --filter @group-crash/server test:integration"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.0",
@@ -18,4 +19,3 @@
     "vite": "^7.2.4"
   }
 }
-

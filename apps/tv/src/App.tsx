@@ -81,6 +81,13 @@ export function App() {
         return;
       }
 
+      if (event.type === "room.closed") {
+        setCreatedRoom(null);
+        setRoom(null);
+        socket.send(JSON.stringify({ type: "room.create", payload: {} }));
+        return;
+      }
+
       if (event.type === "error" && event.payload.code === "ROOM_NOT_FOUND") {
         socket.send(JSON.stringify({ type: "room.create", payload: {} }));
       }

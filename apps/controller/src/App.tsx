@@ -127,6 +127,16 @@ export function App() {
         return;
       }
 
+      if (event.type === "room.closed") {
+        window.localStorage.removeItem(storageKey);
+        setHasJoined(false);
+        setPlayerSession(null);
+        setRoom(null);
+        setFeedback("Room closed. Ask the TV for the new room code.");
+        setScreen("name");
+        return;
+      }
+
       if (event.type === "error") {
         setFeedback(event.payload.message);
       }

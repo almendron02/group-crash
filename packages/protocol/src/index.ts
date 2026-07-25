@@ -676,6 +676,26 @@ export function disconnectLocalPlayer(room: RoomSnapshot, playerId: string): Lob
   return success(normalizeRoom(next), `${player.name} disconnected.`);
 }
 
+export function markLocalPlayerDisconnected(
+  room: RoomSnapshot,
+  playerId: string
+): LobbyActionResult {
+  const next = cloneRoom(room);
+  const player = next.players.find((candidate) => candidate.id === playerId);
+
+  if (!player) {
+    return blocked(next, "Player is not in the room.");
+  }
+
+  if (player.connectionStatus === "disconnected") {
+    return blocked(next, `${player.name} is already disconnected.`);
+  }
+
+  player.connectionStatus = "disconnected";
+
+  return success(normalizeRoom(next), `${player.name} disconnected.`);
+}
+
 export function reconnectLocalPlayer(room: RoomSnapshot, playerId: string): LobbyActionResult {
   const next = cloneRoom(room);
   const player = next.players.find((candidate) => candidate.id === playerId);

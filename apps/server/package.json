@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "check": "tsc --noEmit",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "test:integration": "node scripts/integration-test.mjs"
   },
   "dependencies": {
     "@group-crash/protocol": "workspace:*"
@@ -16,4 +17,3 @@
     "tsx": "^4.21.0"
   }
 }
-

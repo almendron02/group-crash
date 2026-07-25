@@ -5,8 +5,8 @@ import {
   avatarOptions,
   castLocalHostVote,
   createEmptyRoomSnapshot,
-  disconnectLocalPlayer,
   joinLocalPlayer,
+  markLocalPlayerDisconnected,
   passLocalHost,
   reconnectLocalPlayer,
   removeLocalPlayer,
@@ -33,8 +33,11 @@ import {
 
 const port = Number(process.env.PORT ?? 3001);
 const controllerOrigin = process.env.CONTROLLER_ORIGIN ?? "http://127.0.0.1:5174";
-const roomTtlMs = 2 * 60 * 60 * 1000;
-const messageCooldownMs = 1200;
+const roomTtlMs = Number(process.env.ROOM_TTL_MS ?? 2 * 60 * 60 * 1000);
+const reconnectGraceMs = Number(process.env.RECONNECT_GRACE_MS ?? 30_000);
+const cleanupIntervalMs = Number(process.env.CLEANUP_INTERVAL_MS ?? 15_000);
+const messageCooldownMs = Number(process.env.MESSAGE_COOLDOWN_MS ?? 1200);
+const maxMessageBytes = Number(process.env.MAX_MESSAGE_BYTES ?? 4096);
 const roomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 interface SocketPeer {
@@ -47,6 +50,7 @@ interface SocketPeer {
 }
 
 interface RoomRecord {
+  disconnectTimersByPlayerId: Map<string, ReturnType<typeof setTimeout>>;
   displayPeers: Set<SocketPeer>;
   expiresAt: number;
   lastMessageAtByPlayerId: Map<string, number>;
@@ -57,6 +61,9 @@ interface RoomRecord {
 
 const roomsByCode = new Map<string, RoomRecord>();
 const peers = new Set<SocketPeer>();
+
+const cleanupTimer = setInterval(expireInactiveRooms, cleanupIntervalMs);
+cleanupTimer.unref?.();
 
 const server = createServer((request, response) => {
   const body = JSON.stringify({
@@ -125,6 +132,12 @@ function isWebSocketUpgrade(request: IncomingMessage) {
 function handleSocketData(peer: SocketPeer, chunk: Buffer) {
   peer.buffer = Buffer.concat([peer.buffer, chunk]);
 
+  if (peer.buffer.length > maxMessageBytes) {
+    sendError(peer, "UNKNOWN", "Message was too large.");
+    peer.socket.end();
+    return;
+  }
+
   const parsed = parseFrames(peer.buffer);
   peer.buffer = parsed.remaining;
 
@@ -191,6 +204,7 @@ function handleCreateRoom(peer: SocketPeer) {
   const roomId = `room-${randomUUID()}`;
   const expiresAt = Date.now() + roomTtlMs;
   const record: RoomRecord = {
+    disconnectTimersByPlayerId: new Map(),
     displayPeers: new Set(),
     expiresAt,
     lastMessageAtByPlayerId: new Map(),
@@ -221,6 +235,7 @@ function handleWatchRoom(peer: SocketPeer, payload: WatchRoomPayload) {
     return;
   }
 
+  touchRoom(record);
   attachDisplay(peer, record);
   sendSnapshot(peer, record);
 }
@@ -233,6 +248,7 @@ function handleJoinRoom(peer: SocketPeer, payload: JoinRoomPayload) {
     return;
   }
 
+  touchRoom(record);
   const sanitizedName = sanitizePlayerName(payload.name);
 
   if (!sanitizedName) {
@@ -287,6 +303,7 @@ function handleReconnect(peer: SocketPeer, payload: ReconnectPayload) {
     return;
   }
 
+  touchRoom(record);
   const token = record.reconnectTokensByPlayerId.get(payload.playerId);
 
   if (!token || token !== payload.reconnectToken) {
@@ -296,6 +313,7 @@ function handleReconnect(peer: SocketPeer, payload: ReconnectPayload) {
 
   const result = reconnectLocalPlayer(record.snapshot, payload.playerId);
   record.snapshot = result.room;
+  clearDisconnectTimer(record, payload.playerId);
   attachPlayer(peer, record, payload.playerId);
 
   send(peer, {
@@ -323,6 +341,7 @@ function handleLeaveRoom(peer: SocketPeer, payload: LeaveRoomPayload) {
   const previousHostPlayerId = record.snapshot.hostPlayerId;
   const result = removeLocalPlayer(record.snapshot, payload.playerId);
   record.snapshot = result.room;
+  clearDisconnectTimer(record, payload.playerId);
   record.reconnectTokensByPlayerId.delete(payload.playerId);
   detachPeerFromRoom(peer);
 
@@ -539,6 +558,7 @@ function assertPlayerAction(
     return null;
   }
 
+  touchRoom(record);
   return record;
 }
 
@@ -569,16 +589,55 @@ function handlePeerClose(peer: SocketPeer) {
     return;
   }
 
+  schedulePlayerDisconnect(record, playerId);
+}
+
+function schedulePlayerDisconnect(record: RoomRecord, playerId: string) {
+  if (record.disconnectTimersByPlayerId.has(playerId)) {
+    return;
+  }
+
+  const result = markLocalPlayerDisconnected(record.snapshot, playerId);
+
+  if (result.status === "success") {
+    record.snapshot = result.room;
+    broadcast(record, {
+      type: "player.disconnected",
+      payload: { playerId, roomCode: record.snapshot.roomCode }
+    });
+    broadcastSnapshot(record);
+  }
+
+  const timer = setTimeout(() => {
+    finalizePlayerDisconnect(record.snapshot.roomCode, playerId);
+  }, reconnectGraceMs);
+
+  timer.unref?.();
+  record.disconnectTimersByPlayerId.set(playerId, timer);
+}
+
+function finalizePlayerDisconnect(roomCode: string, playerId: string) {
+  const record = findRoom(roomCode);
+
+  if (!record) {
+    return;
+  }
+
+  clearDisconnectTimer(record, playerId);
+
+  if ((record.playerPeers.get(playerId)?.size ?? 0) > 0) {
+    return;
+  }
+
   const previousHostPlayerId = record.snapshot.hostPlayerId;
-  const result = disconnectLocalPlayer(record.snapshot, playerId);
+  const result = removeLocalPlayer(record.snapshot, playerId);
   record.snapshot = result.room;
+  record.reconnectTokensByPlayerId.delete(playerId);
 
-  broadcast(record, {
-    type: "player.disconnected",
-    payload: { playerId, roomCode: record.snapshot.roomCode }
-  });
-
-  if (previousHostPlayerId !== record.snapshot.hostPlayerId && record.snapshot.hostPlayerId) {
+  if (
+    previousHostPlayerId !== record.snapshot.hostPlayerId &&
+    record.snapshot.hostPlayerId
+  ) {
     broadcast(record, {
       type: "host.changed",
       payload: {
@@ -591,6 +650,15 @@ function handlePeerClose(peer: SocketPeer) {
   }
 
   broadcastSnapshot(record);
+}
+
+function clearDisconnectTimer(record: RoomRecord, playerId: string) {
+  const timer = record.disconnectTimersByPlayerId.get(playerId);
+
+  if (timer) {
+    clearTimeout(timer);
+    record.disconnectTimersByPlayerId.delete(playerId);
+  }
 }
 
 function attachDisplay(peer: SocketPeer, record: RoomRecord) {
@@ -638,7 +706,65 @@ function detachPeerFromRoom(peer: SocketPeer) {
 }
 
 function findRoom(roomCode: string) {
-  return roomsByCode.get(roomCode.trim().toUpperCase()) ?? null;
+  const record = roomsByCode.get(roomCode.trim().toUpperCase()) ?? null;
+
+  if (!record) {
+    return null;
+  }
+
+  if (Date.now() > record.expiresAt) {
+    expireRoom(record, "expired");
+    return null;
+  }
+
+  return record;
+}
+
+function touchRoom(record: RoomRecord) {
+  record.expiresAt = Date.now() + roomTtlMs;
+}
+
+function expireInactiveRooms() {
+  const now = Date.now();
+
+  for (const record of roomsByCode.values()) {
+    if (now > record.expiresAt) {
+      expireRoom(record, "expired");
+    }
+  }
+}
+
+function expireRoom(record: RoomRecord, reason: "expired" | "server_shutdown") {
+  const roomCode = record.snapshot.roomCode;
+
+  for (const playerId of record.disconnectTimersByPlayerId.keys()) {
+    clearDisconnectTimer(record, playerId);
+  }
+
+  broadcast(record, {
+    type: "room.closed",
+    payload: { reason, roomCode }
+  });
+
+  for (const peer of record.displayPeers) {
+    peer.roomCode = null;
+    peer.playerId = null;
+    peer.role = "unassigned";
+  }
+
+  for (const playerPeers of record.playerPeers.values()) {
+    for (const peer of playerPeers) {
+      peer.roomCode = null;
+      peer.playerId = null;
+      peer.role = "unassigned";
+    }
+  }
+
+  record.displayPeers.clear();
+  record.playerPeers.clear();
+  record.reconnectTokensByPlayerId.clear();
+  record.lastMessageAtByPlayerId.clear();
+  roomsByCode.delete(roomCode);
 }
 
 function broadcast(record: RoomRecord, event: ServerEvent) {
@@ -679,16 +805,142 @@ function sendError(
 
 function parseClientEvent(rawMessage: string): ClientEvent | null {
   try {
-    const value = JSON.parse(rawMessage) as ClientEvent;
+    const value = JSON.parse(rawMessage) as unknown;
 
-    if (!value || typeof value !== "object" || typeof value.type !== "string") {
+    if (!isRecord(value) || typeof value.type !== "string") {
       return null;
     }
 
-    return value;
+    const payload = value.payload;
+
+    switch (value.type) {
+      case "room.create":
+        return isRecord(payload)
+          ? { type: "room.create", payload: { displayName: optionalString(payload.displayName) } }
+          : null;
+      case "room.watch":
+        return isRecord(payload) && isRoomCode(payload.roomCode)
+          ? { type: "room.watch", payload: { roomCode: normalizeRoomCode(payload.roomCode) } }
+          : null;
+      case "room.join":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          typeof payload.name === "string" &&
+          typeof payload.avatar === "string" &&
+          isChessAvatar(payload.avatar) &&
+          typeof payload.wantsHost === "boolean"
+          ? {
+              type: "room.join",
+              payload: {
+                avatar: payload.avatar,
+                name: payload.name,
+                roomCode: normalizeRoomCode(payload.roomCode),
+                wantsHost: payload.wantsHost
+              }
+            }
+          : null;
+      case "room.reconnect":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.playerId) &&
+          isNonEmptyString(payload.reconnectToken)
+          ? {
+              type: "room.reconnect",
+              payload: {
+                playerId: payload.playerId,
+                reconnectToken: payload.reconnectToken,
+                roomCode: normalizeRoomCode(payload.roomCode)
+              }
+            }
+          : null;
+      case "room.leave":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.playerId)
+          ? {
+              type: "room.leave",
+              payload: { playerId: payload.playerId, roomCode: normalizeRoomCode(payload.roomCode) }
+            }
+          : null;
+      case "message.send":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.playerId) &&
+          typeof payload.text === "string"
+          ? {
+              type: "message.send",
+              payload: {
+                playerId: payload.playerId,
+                roomCode: normalizeRoomCode(payload.roomCode),
+                text: payload.text
+              }
+            }
+          : null;
+      case "host.request":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.playerId)
+          ? {
+              type: "host.request",
+              payload: { playerId: payload.playerId, roomCode: normalizeRoomCode(payload.roomCode) }
+            }
+          : null;
+      case "host.vote.cast":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.playerId) &&
+          isNonEmptyString(payload.voteId) &&
+          (payload.vote === "yes" || payload.vote === "no")
+          ? {
+              type: "host.vote.cast",
+              payload: {
+                playerId: payload.playerId,
+                roomCode: normalizeRoomCode(payload.roomCode),
+                vote: payload.vote,
+                voteId: payload.voteId
+              }
+            }
+          : null;
+      case "host.pass":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.hostPlayerId) &&
+          (payload.targetPlayerId === undefined || isNonEmptyString(payload.targetPlayerId))
+          ? {
+              type: "host.pass",
+              payload: {
+                hostPlayerId: payload.hostPlayerId,
+                roomCode: normalizeRoomCode(payload.roomCode),
+                targetPlayerId: optionalString(payload.targetPlayerId)
+              }
+            }
+          : null;
+      default:
+        return null;
+    }
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isRoomCode(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Z0-9]{4}$/.test(value.trim().toUpperCase());
+}
+
+function normalizeRoomCode(value: string) {
+  return value.trim().toUpperCase();
+}
+
+function optionalString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function createRoomCode() {
