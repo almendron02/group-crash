@@ -67,6 +67,8 @@ The lobby MVP is complete when these behaviors work.
 - Host can select a registered game shell.
 - Selecting a game shell does not start gameplay.
 - Unknown game IDs are rejected.
+- Host can start a playable selected game.
+- Regular players cannot start or advance games.
 - The host can voluntarily pass host.
 - Passing host changes host server-side.
 
@@ -83,6 +85,18 @@ The lobby MVP is complete when these behaviors work.
 - A client cannot vote when disconnected.
 - A client cannot send invalid event payloads successfully.
 - All accepted actions are validated server-side.
+
+## Imposter Crash
+
+- Game requires at least three connected players.
+- Server assigns exactly one imposter.
+- Crew phones receive the secret word.
+- Imposter phone does not receive the secret word.
+- TV does not show the secret word before results.
+- Host can open voting.
+- Players vote from phones.
+- Results reveal the imposter and secret word.
+- Host can return the room to the lobby.
 
 ## Visual Quality
 

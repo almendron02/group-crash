@@ -41,6 +41,7 @@ try {
 
   await testInvalidPayload();
   await testMessageRateLimitAndHostPass();
+  await testImposterGameFlow();
   await testReconnectGraceKeepsHost();
   await testHostReassignsAfterGrace();
   await testRoomExpiration();
@@ -149,6 +150,119 @@ async function testMessageRateLimitAndHostPass() {
   await jay.client.waitFor(
     "error",
     (event) => event.payload.code === "RATE_LIMITED"
+  );
+
+  [tv, alex.client, maya.client, jay.client].forEach((client) => client.close());
+}
+
+async function testImposterGameFlow() {
+  const tv = await connectClient("tv-imposter");
+  const roomCode = await createRoom(tv);
+  const alex = await joinPlayer(roomCode, "Alex", "king");
+  const maya = await joinPlayer(roomCode, "Maya", "queen");
+  const jay = await joinPlayer(roomCode, "Jay", "bishop");
+  await tv.waitFor("room.snapshot", (event) => event.payload.playerCount === 3);
+
+  alex.client.send({
+    type: "game.select",
+    payload: {
+      gameId: "imposter-crash",
+      hostPlayerId: alex.session.playerId,
+      roomCode
+    }
+  });
+  await tv.waitFor(
+    "room.snapshot",
+    (event) => event.payload.selectedGameId === "imposter-crash"
+  );
+
+  alex.client.send({
+    type: "game.start",
+    payload: {
+      hostPlayerId: alex.session.playerId,
+      roomCode
+    }
+  });
+  await tv.waitFor(
+    "room.snapshot",
+    (event) =>
+      event.payload.status === "playing" &&
+      event.payload.activeGame?.gameId === "imposter-crash" &&
+      event.payload.activeGame.phase === "discussion"
+  );
+
+  const privateStates = await Promise.all([
+    alex.client.waitFor("game.private_state", (event) => Boolean(event.payload?.role)),
+    maya.client.waitFor("game.private_state", (event) => Boolean(event.payload?.role)),
+    jay.client.waitFor("game.private_state", (event) => Boolean(event.payload?.role))
+  ]);
+  const imposterState = privateStates.find(
+    (event) => event.payload.role === "imposter"
+  );
+  const crewStates = privateStates.filter((event) => event.payload.role === "crew");
+  assert.ok(imposterState);
+  assert.equal(imposterState.payload.secretWord, null);
+  assert.equal(crewStates.length, 2);
+  assert.ok(crewStates.every((event) => typeof event.payload.secretWord === "string"));
+
+  alex.client.send({
+    type: "game.advance",
+    payload: {
+      action: "start_voting",
+      hostPlayerId: alex.session.playerId,
+      roomCode
+    }
+  });
+  await tv.waitFor(
+    "room.snapshot",
+    (event) => event.payload.activeGame?.phase === "voting"
+  );
+
+  const imposterPlayerId = imposterState.payload.playerId;
+  for (const player of [alex, maya, jay]) {
+    const targetPlayerId =
+      player.session.playerId === imposterPlayerId
+        ? crewStates[0].payload.playerId
+        : imposterPlayerId;
+    player.client.send({
+      type: "game.vote.cast",
+      payload: {
+        playerId: player.session.playerId,
+        roomCode,
+        targetPlayerId
+      }
+    });
+  }
+
+  const results = await tv.waitFor(
+    "room.snapshot",
+    (event) =>
+      event.payload.activeGame?.phase === "results" &&
+      event.payload.activeGame.results?.winner === "crew"
+  );
+  assert.equal(results.payload.activeGame.results.imposterPlayerId, imposterPlayerId);
+
+  maya.client.send({
+    type: "game.advance",
+    payload: {
+      action: "return_lobby",
+      hostPlayerId: maya.session.playerId,
+      roomCode
+    }
+  });
+  await maya.client.waitFor("error", (event) => event.payload.code === "NOT_HOST");
+
+  alex.client.send({
+    type: "game.advance",
+    payload: {
+      action: "return_lobby",
+      hostPlayerId: alex.session.playerId,
+      roomCode
+    }
+  });
+  await tv.waitFor(
+    "room.snapshot",
+    (event) => event.payload.status === "lobby" && event.payload.activeGame === null
   );
 
   [tv, alex.client, maya.client, jay.client].forEach((client) => client.close());

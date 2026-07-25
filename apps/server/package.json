@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@group-crash/demo-crash": "workspace:*",
+    "@group-crash/imposter-crash": "workspace:*",
     "@group-crash/protocol": "workspace:*"
   },
   "devDependencies": {

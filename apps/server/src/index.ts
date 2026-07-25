@@ -3,6 +3,14 @@ import { createServer, type IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { demoCrashManifest } from "@group-crash/demo-crash";
 import {
+  applyImposterAction,
+  createImposterGameState,
+  createImposterPrivateView,
+  createImposterPublicView,
+  imposterCrashManifest,
+  type ImposterGameState
+} from "@group-crash/imposter-crash";
+import {
   avatarOptions,
   castLocalHostVote,
   createEmptyRoomSnapshot,
@@ -14,11 +22,14 @@ import {
   requestLocalHost,
   selectLocalGame,
   sendLocalMessage,
+  type AdvanceGamePayload,
+  type CastGameVotePayload,
   type CastHostVotePayload,
   type ChessAvatar,
   type ClientEvent,
   type HostRequestPayload,
   type HostVote,
+  type PrivateGameView,
   type JoinRoomPayload,
   type LeaveRoomPayload,
   type PassHostPayload,
@@ -31,6 +42,7 @@ import {
   type SendMessagePayload,
   type ServerErrorPayload,
   type ServerEvent,
+  type StartGamePayload,
   type WatchRoomPayload
 } from "@group-crash/protocol";
 
@@ -42,7 +54,7 @@ const cleanupIntervalMs = Number(process.env.CLEANUP_INTERVAL_MS ?? 15_000);
 const messageCooldownMs = Number(process.env.MESSAGE_COOLDOWN_MS ?? 1200);
 const maxMessageBytes = Number(process.env.MAX_MESSAGE_BYTES ?? 4096);
 const roomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const gameRegistry = [demoCrashManifest];
+const gameRegistry = [demoCrashManifest, imposterCrashManifest];
 
 interface SocketPeer {
   id: string;
@@ -54,6 +66,7 @@ interface SocketPeer {
 }
 
 interface RoomRecord {
+  activeGame: ActiveGameRecord | null;
   disconnectTimersByPlayerId: Map<string, ReturnType<typeof setTimeout>>;
   displayPeers: Set<SocketPeer>;
   expiresAt: number;
@@ -62,6 +75,11 @@ interface RoomRecord {
   reconnectTokensByPlayerId: Map<string, string>;
   snapshot: RoomSnapshot;
 }
+
+type ActiveGameRecord = {
+  gameId: "imposter-crash";
+  state: ImposterGameState;
+};
 
 const roomsByCode = new Map<string, RoomRecord>();
 const peers = new Set<SocketPeer>();
@@ -203,6 +221,15 @@ function handleClientMessage(peer: SocketPeer, rawMessage: string) {
     case "game.select":
       handleGameSelect(peer, event.payload);
       break;
+    case "game.start":
+      handleGameStart(peer, event.payload);
+      break;
+    case "game.advance":
+      handleGameAdvance(peer, event.payload);
+      break;
+    case "game.vote.cast":
+      handleGameVote(peer, event.payload);
+      break;
   }
 }
 
@@ -211,6 +238,7 @@ function handleCreateRoom(peer: SocketPeer) {
   const roomId = `room-${randomUUID()}`;
   const expiresAt = Date.now() + roomTtlMs;
   const record: RoomRecord = {
+    activeGame: null,
     disconnectTimersByPlayerId: new Map(),
     displayPeers: new Set(),
     expiresAt,
@@ -256,6 +284,12 @@ function handleJoinRoom(peer: SocketPeer, payload: JoinRoomPayload) {
   }
 
   touchRoom(record);
+
+  if (record.snapshot.status !== "lobby") {
+    sendError(peer, "NOT_ELIGIBLE", "This room is already playing.");
+    return;
+  }
+
   const sanitizedName = sanitizePlayerName(payload.name);
 
   if (!sanitizedName) {
@@ -346,6 +380,9 @@ function handleLeaveRoom(peer: SocketPeer, payload: LeaveRoomPayload) {
   }
 
   const previousHostPlayerId = record.snapshot.hostPlayerId;
+  const playerWasInActiveGame = Boolean(
+    record.activeGame?.state.playerIds.includes(payload.playerId)
+  );
   const result = removeLocalPlayer(record.snapshot, payload.playerId);
   record.snapshot = result.room;
   clearDisconnectTimer(record, payload.playerId);
@@ -364,6 +401,10 @@ function handleLeaveRoom(peer: SocketPeer, payload: LeaveRoomPayload) {
         roomCode: record.snapshot.roomCode
       }
     });
+  }
+
+  if (playerWasInActiveGame) {
+    clearActiveGame(record);
   }
 
   broadcastSnapshot(record);
@@ -589,6 +630,140 @@ function handleGameSelect(peer: SocketPeer, payload: SelectGamePayload) {
   broadcastSnapshot(record);
 }
 
+function handleGameStart(peer: SocketPeer, payload: StartGamePayload) {
+  const record = assertPlayerAction(peer, payload.roomCode, payload.hostPlayerId);
+
+  if (!record) {
+    return;
+  }
+
+  if (record.snapshot.hostPlayerId !== payload.hostPlayerId) {
+    sendError(peer, "NOT_HOST", "Only the current host can start games.");
+    return;
+  }
+
+  if (record.activeGame || record.snapshot.activeGame) {
+    sendError(peer, "GAME_ALREADY_ACTIVE", "A game is already running.");
+    return;
+  }
+
+  const selectedGame = record.snapshot.availableGames.find(
+    (game) => game.id === record.snapshot.selectedGameId
+  );
+
+  if (!selectedGame) {
+    sendError(peer, "GAME_NOT_FOUND", "Select a game before starting.");
+    return;
+  }
+
+  if (selectedGame.id !== imposterCrashManifest.id || selectedGame.status !== "playable") {
+    sendError(peer, "INVALID_GAME_ACTION", `${selectedGame.name} is not playable yet.`);
+    return;
+  }
+
+  const connectedPlayerIds = record.snapshot.players
+    .filter((player) => player.connectionStatus === "connected")
+    .map((player) => player.id);
+
+  if (connectedPlayerIds.length < imposterCrashManifest.minPlayers) {
+    sendError(
+      peer,
+      "NOT_ELIGIBLE",
+      `Imposter Crash needs at least ${imposterCrashManifest.minPlayers} players.`
+    );
+    return;
+  }
+
+  const state = createImposterGameState({ playerIds: connectedPlayerIds });
+  record.activeGame = { gameId: "imposter-crash", state };
+  syncActiveGameSnapshot(record);
+
+  broadcast(record, {
+    type: "game.started",
+    payload: {
+      gameId: imposterCrashManifest.id,
+      roomCode: record.snapshot.roomCode,
+      startedByPlayerId: payload.hostPlayerId
+    }
+  });
+  broadcastSnapshot(record);
+  broadcastPrivateGameStates(record);
+}
+
+function handleGameAdvance(peer: SocketPeer, payload: AdvanceGamePayload) {
+  const record = assertPlayerAction(peer, payload.roomCode, payload.hostPlayerId);
+
+  if (!record) {
+    return;
+  }
+
+  if (record.snapshot.hostPlayerId !== payload.hostPlayerId) {
+    sendError(peer, "NOT_HOST", "Only the current host can advance games.");
+    return;
+  }
+
+  if (!record.activeGame) {
+    sendError(peer, "GAME_NOT_ACTIVE", "No game is running.");
+    return;
+  }
+
+  if (payload.action === "return_lobby") {
+    clearActiveGame(record);
+    broadcastSnapshot(record);
+    broadcastPrivateGameStates(record);
+    return;
+  }
+
+  if (record.activeGame.state.phase !== "discussion") {
+    sendError(peer, "INVALID_GAME_ACTION", "Voting can only start after discussion.");
+    return;
+  }
+
+  record.activeGame.state = applyImposterAction(record.activeGame.state, {
+    type: "start_voting"
+  });
+  syncActiveGameSnapshot(record);
+  broadcast(record, { type: "game.updated", payload: record.snapshot.activeGame! });
+  broadcastSnapshot(record);
+  broadcastPrivateGameStates(record);
+}
+
+function handleGameVote(peer: SocketPeer, payload: CastGameVotePayload) {
+  const record = assertPlayerAction(peer, payload.roomCode, payload.playerId);
+
+  if (!record) {
+    return;
+  }
+
+  if (!record.activeGame) {
+    sendError(peer, "GAME_NOT_ACTIVE", "No game vote is active.");
+    return;
+  }
+
+  if (record.activeGame.state.phase !== "voting") {
+    sendError(peer, "INVALID_GAME_ACTION", "Voting is not open yet.");
+    return;
+  }
+
+  if (
+    payload.targetPlayerId === payload.playerId ||
+    !record.activeGame.state.playerIds.includes(payload.targetPlayerId)
+  ) {
+    sendError(peer, "INVALID_GAME_ACTION", "Vote for another active player.");
+    return;
+  }
+
+  record.activeGame.state = applyImposterAction(record.activeGame.state, {
+    type: "cast_vote",
+    playerId: payload.playerId,
+    targetPlayerId: payload.targetPlayerId
+  });
+  syncActiveGameSnapshot(record);
+  broadcast(record, { type: "game.updated", payload: record.snapshot.activeGame! });
+  broadcastSnapshot(record);
+  broadcastPrivateGameStates(record);
+}
+
 function assertPlayerAction(
   peer: SocketPeer,
   roomCode: string,
@@ -678,6 +853,7 @@ function finalizePlayerDisconnect(roomCode: string, playerId: string) {
   }
 
   const previousHostPlayerId = record.snapshot.hostPlayerId;
+  const playerWasInActiveGame = Boolean(record.activeGame?.state.playerIds.includes(playerId));
   const result = removeLocalPlayer(record.snapshot, playerId);
   record.snapshot = result.room;
   record.reconnectTokensByPlayerId.delete(playerId);
@@ -697,7 +873,12 @@ function finalizePlayerDisconnect(roomCode: string, playerId: string) {
     });
   }
 
+  if (playerWasInActiveGame) {
+    clearActiveGame(record);
+  }
+
   broadcastSnapshot(record);
+  broadcastPrivateGameStates(record);
 }
 
 function clearDisconnectTimer(record: RoomRecord, playerId: string) {
@@ -833,6 +1014,46 @@ function broadcastSnapshot(record: RoomRecord) {
 
 function sendSnapshot(peer: SocketPeer, record: RoomRecord) {
   send(peer, { type: "room.snapshot", payload: record.snapshot });
+  sendPrivateGameState(peer, record);
+}
+
+function syncActiveGameSnapshot(record: RoomRecord) {
+  record.snapshot = {
+    ...record.snapshot,
+    activeGame: record.activeGame
+      ? createImposterPublicView(record.activeGame.state)
+      : null,
+    status: record.activeGame ? "playing" : "lobby"
+  };
+}
+
+function clearActiveGame(record: RoomRecord) {
+  record.activeGame = null;
+  syncActiveGameSnapshot(record);
+}
+
+function broadcastPrivateGameStates(record: RoomRecord) {
+  for (const peer of record.displayPeers) {
+    sendPrivateGameState(peer, record);
+  }
+
+  for (const playerPeers of record.playerPeers.values()) {
+    for (const peer of playerPeers) {
+      sendPrivateGameState(peer, record);
+    }
+  }
+}
+
+function sendPrivateGameState(peer: SocketPeer, record: RoomRecord) {
+  if (peer.role !== "player" || !peer.playerId) {
+    return;
+  }
+
+  const payload: PrivateGameView | null = record.activeGame
+    ? createImposterPrivateView(record.activeGame.state, peer.playerId)
+    : null;
+
+  send(peer, { type: "game.private_state", payload });
 }
 
 function send(peer: SocketPeer, event: ServerEvent) {
@@ -974,6 +1195,46 @@ function parseClientEvent(rawMessage: string): ClientEvent | null {
                 gameId: normalizeGameId(payload.gameId),
                 hostPlayerId: payload.hostPlayerId,
                 roomCode: normalizeRoomCode(payload.roomCode)
+              }
+            }
+          : null;
+      case "game.start":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.hostPlayerId)
+          ? {
+              type: "game.start",
+              payload: {
+                hostPlayerId: payload.hostPlayerId,
+                roomCode: normalizeRoomCode(payload.roomCode)
+              }
+            }
+          : null;
+      case "game.advance":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.hostPlayerId) &&
+          (payload.action === "start_voting" || payload.action === "return_lobby")
+          ? {
+              type: "game.advance",
+              payload: {
+                action: payload.action,
+                hostPlayerId: payload.hostPlayerId,
+                roomCode: normalizeRoomCode(payload.roomCode)
+              }
+            }
+          : null;
+      case "game.vote.cast":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.playerId) &&
+          isNonEmptyString(payload.targetPlayerId)
+          ? {
+              type: "game.vote.cast",
+              payload: {
+                playerId: payload.playerId,
+                roomCode: normalizeRoomCode(payload.roomCode),
+                targetPlayerId: payload.targetPlayerId
               }
             }
           : null;

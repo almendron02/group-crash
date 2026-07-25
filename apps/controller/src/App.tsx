@@ -2,9 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Crown,
   DoorOpen,
+  Eye,
   Gamepad2,
   MessageCircle,
+  Play,
   Send,
+  ShieldAlert,
+  Trophy,
   UserPlus,
   Vote
 } from "lucide-react";
@@ -14,6 +18,7 @@ import {
   type ChessAvatar,
   type ClientEvent,
   type PlayerSessionPayload,
+  type PrivateGameView,
   type PublicPlayer,
   type RoomSnapshot,
   type ServerEvent
@@ -29,7 +34,7 @@ import {
   StatusPill
 } from "@group-crash/ui";
 
-type Screen = "name" | "avatar" | "role" | "player" | "host" | "vote";
+type Screen = "name" | "avatar" | "role" | "player" | "host" | "vote" | "game";
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 const storageKey = "group-crash-player-session";
@@ -73,6 +78,7 @@ export function App() {
     useState<ConnectionStatus>("connecting");
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
+  const [privateGame, setPrivateGame] = useState<PrivateGameView | null>(null);
   const [playerSession, setPlayerSession] = useState<PlayerSessionPayload | null>(null);
   const [hasJoined, setHasJoined] = useState(false);
   const [roomCode, setRoomCode] = useState(getInitialRoomCode);
@@ -132,13 +138,29 @@ export function App() {
         setHasJoined(false);
         setPlayerSession(null);
         setRoom(null);
+        setPrivateGame(null);
         setFeedback("Room closed. Ask the TV for the new room code.");
         setScreen("name");
         return;
       }
 
+      if (event.type === "game.private_state") {
+        setPrivateGame(event.payload);
+        return;
+      }
+
       if (event.type === "game.selected") {
         setFeedback("Game module selected.");
+        return;
+      }
+
+      if (event.type === "game.started") {
+        setFeedback("Game started.");
+        return;
+      }
+
+      if (event.type === "game.updated") {
+        setFeedback("Game updated.");
         return;
       }
 
@@ -183,6 +205,11 @@ export function App() {
     const player = room.players.find((candidate) => candidate.id === playerSession.playerId);
 
     if (!player) {
+      return;
+    }
+
+    if (room.activeGame) {
+      setScreen("game");
       return;
     }
 
@@ -340,6 +367,53 @@ export function App() {
     });
   }
 
+  function startGameFromPhone() {
+    if (!playerSession) {
+      setFeedback("Join the room before starting a game.");
+      return;
+    }
+
+    sendEvent({
+      type: "game.start",
+      payload: {
+        hostPlayerId: playerSession.playerId,
+        roomCode: playerSession.roomCode
+      }
+    });
+  }
+
+  function advanceGameFromPhone(action: "start_voting" | "return_lobby") {
+    if (!playerSession) {
+      setFeedback("Join the room before advancing a game.");
+      return;
+    }
+
+    sendEvent({
+      type: "game.advance",
+      payload: {
+        action,
+        hostPlayerId: playerSession.playerId,
+        roomCode: playerSession.roomCode
+      }
+    });
+  }
+
+  function castGameVoteFromPhone(targetPlayerId: string) {
+    if (!playerSession) {
+      setFeedback("Join the room before voting.");
+      return;
+    }
+
+    sendEvent({
+      type: "game.vote.cast",
+      payload: {
+        playerId: playerSession.playerId,
+        roomCode: playerSession.roomCode,
+        targetPlayerId
+      }
+    });
+  }
+
   function leaveRoomFromPhone() {
     if (!playerSession) {
       setFeedback("You are not in a room right now.");
@@ -361,6 +435,7 @@ export function App() {
     setHasJoined(false);
     setPlayerSession(null);
     setRoom(null);
+    setPrivateGame(null);
     setPassTargetPlayerId("");
     setWantsHost(false);
     setRoomCode(leavingRoomCode);
@@ -528,6 +603,7 @@ export function App() {
             onLeaveRoom={leaveRoomFromPhone}
             onSelectGame={selectGameFromPhone}
             onSendMessage={sendSelectedMessage}
+            onStartGame={startGameFromPhone}
             onPassHost={passHostFromPhone}
           />
         ) : null}
@@ -540,6 +616,20 @@ export function App() {
             onLeaveRoom={leaveRoomFromPhone}
             onVoteYes={() => castPhoneVote("yes")}
             onVoteNo={() => castPhoneVote("no")}
+          />
+        ) : null}
+
+        {screen === "game" ? (
+          <GameController
+            feedback={feedback}
+            isHost={Boolean(currentPlayer.isHost)}
+            player={currentPlayer}
+            privateGame={privateGame}
+            room={room}
+            onLeaveRoom={leaveRoomFromPhone}
+            onReturnLobby={() => advanceGameFromPhone("return_lobby")}
+            onStartVoting={() => advanceGameFromPhone("start_voting")}
+            onVote={castGameVoteFromPhone}
           />
         ) : null}
       </PhoneShell>
@@ -639,6 +729,7 @@ interface HostControllerProps {
   onLeaveRoom: () => void;
   onSelectGame: (gameId: string) => void;
   onSendMessage: () => void;
+  onStartGame: () => void;
   onPassHost: () => void;
 }
 
@@ -654,10 +745,15 @@ function HostController({
   onLeaveRoom,
   onSelectGame,
   onPassHost,
-  onSendMessage
+  onSendMessage,
+  onStartGame
 }: HostControllerProps) {
   const games = room?.availableGames ?? [];
   const selectedGame = games.find((game) => game.id === room?.selectedGameId);
+  const selectedGameCanStart =
+    Boolean(selectedGame) &&
+    selectedGame?.status === "playable" &&
+    (room?.playerCount ?? 0) >= (selectedGame?.minPlayers ?? 99);
 
   return (
     <section className="phone-card lobby-card host-card">
@@ -739,8 +835,13 @@ function HostController({
       </div>
 
       <div className="host-controls">
-        <Button variant="primary" disabled icon={<Gamepad2 aria-hidden="true" />}>
-          Start disabled
+        <Button
+          variant="primary"
+          disabled={!selectedGameCanStart}
+          icon={<Play aria-hidden="true" />}
+          onClick={onStartGame}
+        >
+          Start game
         </Button>
         <Button
           disabled={passTargets.length === 0}
@@ -853,6 +954,147 @@ function VoteController({
           Vote yes
         </Button>
       </div>
+      <Button variant="destructive" onClick={onLeaveRoom}>
+        Leave room
+      </Button>
+    </section>
+  );
+}
+
+interface GameControllerProps {
+  feedback: string;
+  isHost: boolean;
+  player: PublicPlayer;
+  privateGame: PrivateGameView | null;
+  room: RoomSnapshot | null;
+  onLeaveRoom: () => void;
+  onReturnLobby: () => void;
+  onStartVoting: () => void;
+  onVote: (targetPlayerId: string) => void;
+}
+
+function GameController({
+  feedback,
+  isHost,
+  player,
+  privateGame,
+  room,
+  onLeaveRoom,
+  onReturnLobby,
+  onStartVoting,
+  onVote
+}: GameControllerProps) {
+  const activeGame = room?.activeGame;
+  const results = activeGame?.results ?? privateGame?.results ?? null;
+  const imposter = room?.players.find(
+    (candidate) => candidate.id === results?.imposterPlayerId
+  );
+  const votedTarget = room?.players.find(
+    (candidate) => candidate.id === privateGame?.votedForPlayerId
+  );
+  const voteTargets =
+    room?.players.filter(
+      (candidate) =>
+        candidate.id !== player.id &&
+        candidate.connectionStatus === "connected" &&
+        activeGame?.playerIds.includes(candidate.id)
+    ) ?? [];
+
+  return (
+    <section className="phone-card game-card">
+      <div className="player-strip">
+        <ChessAvatarBadge avatar={player.avatar} selected size="sm" />
+        <div>
+          <strong>{player.name}</strong>
+          <span>{activeGame?.name ?? "Game loading"}</span>
+        </div>
+        <Badge tone="yellow" icon={<ShieldAlert aria-hidden="true" />}>
+          {activeGame?.phase ?? "sync"}
+        </Badge>
+      </div>
+
+      <div className="role-card" data-role={privateGame?.role ?? "waiting"}>
+        <div className="section-label">
+          <Eye aria-hidden="true" />
+          <span>Your clue</span>
+        </div>
+        {privateGame ? (
+          <>
+            <strong>
+              {privateGame.role === "imposter" ? "You are the imposter" : "You are crew"}
+            </strong>
+            <p>Category: {privateGame.category}</p>
+            {privateGame.secretWord ? (
+              <h2>{privateGame.secretWord}</h2>
+            ) : (
+              <h2>Blend in</h2>
+            )}
+          </>
+        ) : (
+          <>
+            <strong>Waiting for private role</strong>
+            <p>The server is sending your hidden information.</p>
+          </>
+        )}
+      </div>
+
+      {activeGame?.phase === "discussion" ? (
+        <div className="game-phase-card">
+          <Badge tone="cream">Discussion</Badge>
+          <p>
+            Talk out loud. Crew knows the word; the imposter only knows the category.
+          </p>
+          {isHost ? (
+            <Button variant="primary" icon={<Vote aria-hidden="true" />} onClick={onStartVoting}>
+              Start voting
+            </Button>
+          ) : (
+            <p className="phone-feedback">Waiting for host to open voting.</p>
+          )}
+        </div>
+      ) : null}
+
+      {activeGame?.phase === "voting" ? (
+        <div className="game-phase-card">
+          <Badge tone="cream">
+            {activeGame.votesCast}/{activeGame.votesNeeded} voted
+          </Badge>
+          <p>{votedTarget ? `Your vote: ${votedTarget.name}` : "Pick who you think is the imposter."}</p>
+          <div className="vote-target-stack">
+            {voteTargets.map((target) => (
+              <button
+                className="vote-target-button"
+                data-selected={privateGame?.votedForPlayerId === target.id}
+                key={target.id}
+                disabled={!privateGame?.canVote}
+                onClick={() => onVote(target.id)}
+              >
+                <ChessAvatarBadge avatar={target.avatar} size="xs" />
+                <span>{target.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {activeGame?.phase === "results" && results ? (
+        <div className="game-phase-card result-card">
+          <Badge tone="yellow" icon={<Trophy aria-hidden="true" />}>
+            {results.winner === "crew" ? "Crew wins" : "Imposter wins"}
+          </Badge>
+          <h2>{imposter?.name ?? "The imposter"}</h2>
+          <p>Secret word: {results.secretWord}</p>
+          {isHost ? (
+            <Button variant="primary" onClick={onReturnLobby}>
+              Return lobby
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <p className="phone-feedback" aria-live="polite">
+        {feedback}
+      </p>
       <Button variant="destructive" onClick={onLeaveRoom}>
         Leave room
       </Button>

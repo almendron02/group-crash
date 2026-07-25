@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Gamepad2, MessageCircle, UsersRound, Vote } from "lucide-react";
+import {
+  Gamepad2,
+  MessageCircle,
+  ShieldAlert,
+  Trophy,
+  UsersRound,
+  Vote
+} from "lucide-react";
 import {
   createEmptyRoomSnapshot,
   type RoomCreatedPayload,
@@ -139,6 +146,9 @@ export function App() {
         <RoomCodePill code={roomCode} />
       </section>
 
+      {displayRoom.activeGame ? (
+        <ImposterTvGame room={displayRoom} />
+      ) : (
       <section className="tv-layout" aria-label="Live lobby">
         <aside className="tv-join">
           <QrCard
@@ -240,6 +250,122 @@ export function App() {
           ) : null}
         </aside>
       </section>
+      )}
     </main>
+  );
+}
+
+function ImposterTvGame({ room }: { room: RoomSnapshot }) {
+  const game = room.activeGame;
+
+  if (!game) {
+    return null;
+  }
+
+  const playerById = new Map(room.players.map((player) => [player.id, player]));
+  const imposter = game.results
+    ? playerById.get(game.results.imposterPlayerId)
+    : null;
+
+  return (
+    <section className="tv-game-layout" aria-label="Imposter game">
+      <section className="tv-game-main panel">
+        <div className="panel-heading">
+          <div>
+            <Badge tone="yellow" icon={<ShieldAlert aria-hidden="true" />}>
+              {game.phase}
+            </Badge>
+            <h1>{game.name}</h1>
+          </div>
+          <div className="tv-game-category">
+            <span>Category</span>
+            <strong>{game.category}</strong>
+          </div>
+        </div>
+
+        <div className="tv-game-prompt">
+          {game.phase === "discussion" ? (
+            <>
+              <h2>Talk it out.</h2>
+              <p>
+                Crew players know the secret word. The imposter only knows the category.
+              </p>
+            </>
+          ) : null}
+          {game.phase === "voting" ? (
+            <>
+              <h2>Vote on phones.</h2>
+              <p>
+                {game.votesCast}/{game.votesNeeded} votes are locked in.
+              </p>
+            </>
+          ) : null}
+          {game.phase === "results" && game.results ? (
+            <>
+              <h2>{game.results.winner === "crew" ? "Crew wins" : "Imposter wins"}</h2>
+              <p>
+                {imposter?.name ?? "The imposter"} was the imposter. Secret word:
+                {" "}
+                {game.results.secretWord}
+              </p>
+            </>
+          ) : null}
+        </div>
+      </section>
+
+      <aside className="tv-game-side">
+        <div className="panel tv-game-roster">
+          <div className="panel-heading compact">
+            <Badge tone="cream" icon={<UsersRound aria-hidden="true" />}>
+              Players
+            </Badge>
+          </div>
+          <div className="tv-game-player-list">
+            {game.playerIds.map((playerId) => {
+              const player = playerById.get(playerId);
+              const voteState = game.voteProgress.find(
+                (progress) => progress.playerId === playerId
+              );
+
+              return player ? (
+                <div className="tv-game-player" key={player.id}>
+                  <ChessAvatar
+                    avatar={player.avatar}
+                    selected={game.results?.imposterPlayerId === player.id}
+                    size="sm"
+                  />
+                  <span>{player.name}</span>
+                  <strong>
+                    {game.phase === "voting"
+                      ? voteState?.hasVoted
+                        ? "voted"
+                        : "thinking"
+                      : game.phase}
+                  </strong>
+                </div>
+              ) : null;
+            })}
+          </div>
+        </div>
+
+        {game.phase === "results" && game.results ? (
+          <div className="panel tv-game-results">
+            <Badge tone="yellow" icon={<Trophy aria-hidden="true" />}>
+              Results
+            </Badge>
+            {game.results.voteCounts.map((count) => {
+              const player = playerById.get(count.playerId);
+
+              return player ? (
+                <div className="tv-vote-row" key={count.playerId}>
+                  <span>{player.name}</span>
+                  <strong>{count.votes}</strong>
+                </div>
+              ) : null;
+            })}
+          </div>
+        ) : null}
+      </aside>
+    </section>
   );
 }

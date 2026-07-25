@@ -4,7 +4,7 @@ Group Crash is a web-first second-screen multiplayer game platform for TV and ph
 
 The TV shows the shared lobby and game experience. Players scan a QR code, join from their phones, send quick messages, request host control, vote on host changes, and eventually use their phones as private controllers for modular party games.
 
-The current development milestone is the lobby plus a modular game registry shell. No playable games are included yet.
+The current development milestone is the lobby plus the first playable modular game, `Imposter Crash`.
 
 ## MVP Scope
 
@@ -25,7 +25,7 @@ The lobby MVP includes:
 
 The MVP does not include:
 
-- Real games
+- Multiple playable games
 - Public matchmaking
 - User accounts
 - Persistent profiles
@@ -108,4 +108,4 @@ group-crash/
 
 ## Current Status
 
-Milestone 5 is in progress. The TV and phone controller connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, host transfer, reconnect grace, room expiration, and host-only game selection. The first registered module is `Demo Crash`, a non-playable shell used to prove the modular registry path before real games are implemented.
+Milestone 6 is in progress. The TV and phone controller connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, host transfer, reconnect grace, room expiration, host-only game selection, and a playable `Imposter Crash` game loop. The server keeps the imposter role and secret word authoritative, sends private role state only to each player's phone, and broadcasts public game state to the TV.

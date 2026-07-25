@@ -59,6 +59,7 @@ export interface RoomSnapshot {
   messages: LobbyMessage[];
   activeHostVote: HostVote | null;
   availableGames: GameManifest[];
+  activeGame: PublicGameView | null;
   playerCount: number;
   maxPlayers: number;
   gamesAvailable: boolean;
@@ -80,6 +81,35 @@ export interface GameManifest {
 }
 ```
 
+Public game views are safe for the TV and all players. Private game views are sent only to the matching player controller.
+
+```ts
+export interface PublicGameView {
+  gameId: string;
+  name: string;
+  phase: "discussion" | "voting" | "results";
+  category: string;
+  playerIds: string[];
+  results: PublicGameResults | null;
+  round: number;
+  voteProgress: Array<{ playerId: string; hasVoted: boolean }>;
+  votesCast: number;
+  votesNeeded: number;
+}
+
+export interface PrivateGameView {
+  gameId: string;
+  playerId: string;
+  phase: "discussion" | "voting" | "results";
+  role: "crew" | "imposter";
+  category: string;
+  secretWord: string | null;
+  canVote: boolean;
+  votedForPlayerId: string | null;
+  results: PublicGameResults | null;
+}
+```
+
 ## Client Events
 
 Phone and TV clients send these events to the server.
@@ -95,7 +125,10 @@ export type ClientEvent =
   | { type: "host.request"; payload: HostRequestPayload }
   | { type: "host.vote.cast"; payload: CastHostVotePayload }
   | { type: "host.pass"; payload: PassHostPayload }
-  | { type: "game.select"; payload: SelectGamePayload };
+  | { type: "game.select"; payload: SelectGamePayload }
+  | { type: "game.start"; payload: StartGamePayload }
+  | { type: "game.advance"; payload: AdvanceGamePayload }
+  | { type: "game.vote.cast"; payload: CastGameVotePayload };
 ```
 
 Payloads:
@@ -156,6 +189,23 @@ export interface SelectGamePayload {
   hostPlayerId: string;
   gameId: string;
 }
+
+export interface StartGamePayload {
+  roomCode: string;
+  hostPlayerId: string;
+}
+
+export interface AdvanceGamePayload {
+  roomCode: string;
+  hostPlayerId: string;
+  action: "start_voting" | "return_lobby";
+}
+
+export interface CastGameVotePayload {
+  roomCode: string;
+  playerId: string;
+  targetPlayerId: string;
+}
 ```
 
 ## Server Events
@@ -176,6 +226,9 @@ export type ServerEvent =
   | { type: "host.vote.updated"; payload: HostVote }
   | { type: "host.vote.completed"; payload: HostVoteCompletedPayload }
   | { type: "game.selected"; payload: GameSelectedPayload }
+  | { type: "game.started"; payload: GameStartedPayload }
+  | { type: "game.updated"; payload: PublicGameView }
+  | { type: "game.private_state"; payload: PrivateGameView | null }
   | { type: "room.closed"; payload: RoomClosedPayload }
   | { type: "error"; payload: ServerErrorPayload };
 ```
@@ -230,6 +283,12 @@ export interface GameSelectedPayload {
   selectedByPlayerId: string;
 }
 
+export interface GameStartedPayload {
+  roomCode: string;
+  gameId: string;
+  startedByPlayerId: string;
+}
+
 export interface ServerErrorPayload {
   code:
     | "ROOM_NOT_FOUND"
@@ -241,6 +300,9 @@ export interface ServerErrorPayload {
     | "NOT_HOST"
     | "VOTE_NOT_FOUND"
     | "GAME_NOT_FOUND"
+    | "GAME_NOT_ACTIVE"
+    | "GAME_ALREADY_ACTIVE"
+    | "INVALID_GAME_ACTION"
     | "NOT_ELIGIBLE"
     | "UNKNOWN";
   message: string;

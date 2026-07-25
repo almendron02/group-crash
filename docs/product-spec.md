@@ -91,10 +91,29 @@ Sample identity mapping:
 - Sam: Rook
 - Leo: Pawn
 
+## First Playable Game
+
+`Imposter Crash` is the first playable module.
+
+Rules:
+
+- 3-8 connected players can play.
+- One player is secretly assigned as the imposter.
+- Crew players see the category and secret word.
+- The imposter sees only the category.
+- Players discuss in person.
+- The host opens voting.
+- Phones cast votes.
+- If the imposter receives the clear highest vote count, crew wins.
+- Otherwise, the imposter wins.
+
+The TV must show only public information until results.
+
+Phones must show each player only their private role information.
+
 ## Out Of Scope For This Milestone
 
-- Playable games
-- Game rules
+- Additional playable games
 - Public room discovery
 - Accounts and login
 - Persistent profiles

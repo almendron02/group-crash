@@ -65,7 +65,7 @@ Only the current host can:
 - Start a game once games exist
 - Pass host voluntarily
 
-For the registry-shell milestone, the host can select a registered non-playable module. The start control remains disabled until a playable module exists.
+For the playable-game milestone, the host can select registered modules. Playable modules can be started when the room satisfies their player limits.
 
 ## Game Registry
 
@@ -76,6 +76,9 @@ For the registry-shell milestone, the host can select a registered non-playable 
 - Regular players cannot select modules.
 - Selecting a module does not start gameplay.
 - The selected module is visible on the TV and host controller.
+- Starting a playable module changes the room status to `playing`.
+- During gameplay, the TV receives public game state.
+- During gameplay, each phone receives only that player's private game state.
 
 ## Host Requests
 

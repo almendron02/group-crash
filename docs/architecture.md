@@ -46,6 +46,7 @@ packages/
 
 games/
   demo-crash/
+  imposter-crash/
 ```
 
 ## TV App
@@ -132,6 +133,8 @@ games/demo-crash
 ```
 
 `Demo Crash` exposes a manifest and placeholder state. It is not playable; it exists to prove that the server can register game modules and let the current host select one.
+
+`Imposter Crash` is the first playable module. Its full secret state lives on the server. Public TV snapshots show phase, category, players, vote progress and results. Private phone snapshots show each player's own role and clue.
 
 Future game modules should define:
 

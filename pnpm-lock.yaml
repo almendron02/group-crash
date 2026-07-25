@@ -51,6 +51,9 @@ importers:
       '@group-crash/demo-crash':
         specifier: workspace:*
         version: link:../../games/demo-crash
+      '@group-crash/imposter-crash':
+        specifier: workspace:*
+        version: link:../../games/imposter-crash
       '@group-crash/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -91,6 +94,12 @@ importers:
         version: 19.2.3(@types/react@19.2.17)
 
   games/demo-crash:
+    dependencies:
+      '@group-crash/game-sdk':
+        specifier: workspace:*
+        version: link:../../packages/game-sdk
+
+  games/imposter-crash:
     dependencies:
       '@group-crash/game-sdk':
         specifier: workspace:*

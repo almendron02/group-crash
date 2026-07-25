@@ -43,6 +43,43 @@ export interface HostVote {
   expiresAt: number;
 }
 
+export type GamePhase = "discussion" | "voting" | "results";
+export type GameRole = "crew" | "imposter";
+export type GameWinner = "crew" | "imposter";
+
+export interface PublicGameResults {
+  imposterPlayerId: string;
+  mostVotedPlayerIds: string[];
+  secretWord: string;
+  voteCounts: Array<{ playerId: string; votes: number }>;
+  winner: GameWinner;
+}
+
+export interface PublicGameView {
+  gameId: string;
+  name: string;
+  phase: GamePhase;
+  category: string;
+  playerIds: string[];
+  results: PublicGameResults | null;
+  round: number;
+  voteProgress: Array<{ playerId: string; hasVoted: boolean }>;
+  votesCast: number;
+  votesNeeded: number;
+}
+
+export interface PrivateGameView {
+  gameId: string;
+  playerId: string;
+  phase: GamePhase;
+  role: GameRole;
+  category: string;
+  secretWord: string | null;
+  canVote: boolean;
+  votedForPlayerId: string | null;
+  results: PublicGameResults | null;
+}
+
 export interface RoomSnapshot {
   roomId: string;
   roomCode: string;
@@ -51,6 +88,7 @@ export interface RoomSnapshot {
   players: PublicPlayer[];
   messages: LobbyMessage[];
   activeHostVote: HostVote | null;
+  activeGame: PublicGameView | null;
   availableGames: GameManifest[];
   playerCount: number;
   maxPlayers: number;
@@ -114,6 +152,23 @@ export interface SelectGamePayload {
   gameId: string;
 }
 
+export interface StartGamePayload {
+  roomCode: string;
+  hostPlayerId: string;
+}
+
+export interface AdvanceGamePayload {
+  roomCode: string;
+  hostPlayerId: string;
+  action: "start_voting" | "return_lobby";
+}
+
+export interface CastGameVotePayload {
+  roomCode: string;
+  playerId: string;
+  targetPlayerId: string;
+}
+
 export type ClientEvent =
   | { type: "room.create"; payload: CreateRoomPayload }
   | { type: "room.watch"; payload: WatchRoomPayload }
@@ -124,7 +179,10 @@ export type ClientEvent =
   | { type: "host.request"; payload: HostRequestPayload }
   | { type: "host.vote.cast"; payload: CastHostVotePayload }
   | { type: "host.pass"; payload: PassHostPayload }
-  | { type: "game.select"; payload: SelectGamePayload };
+  | { type: "game.select"; payload: SelectGamePayload }
+  | { type: "game.start"; payload: StartGamePayload }
+  | { type: "game.advance"; payload: AdvanceGamePayload }
+  | { type: "game.vote.cast"; payload: CastGameVotePayload };
 
 export interface RoomCreatedPayload {
   roomId: string;
@@ -173,6 +231,12 @@ export interface GameSelectedPayload {
   selectedByPlayerId: string;
 }
 
+export interface GameStartedPayload {
+  roomCode: string;
+  gameId: string;
+  startedByPlayerId: string;
+}
+
 export interface ServerErrorPayload {
   code:
     | "ROOM_NOT_FOUND"
@@ -184,6 +248,9 @@ export interface ServerErrorPayload {
     | "NOT_HOST"
     | "VOTE_NOT_FOUND"
     | "GAME_NOT_FOUND"
+    | "GAME_NOT_ACTIVE"
+    | "GAME_ALREADY_ACTIVE"
+    | "INVALID_GAME_ACTION"
     | "NOT_ELIGIBLE"
     | "UNKNOWN";
   message: string;
@@ -202,6 +269,9 @@ export type ServerEvent =
   | { type: "host.vote.updated"; payload: HostVote }
   | { type: "host.vote.completed"; payload: HostVoteCompletedPayload }
   | { type: "game.selected"; payload: GameSelectedPayload }
+  | { type: "game.started"; payload: GameStartedPayload }
+  | { type: "game.updated"; payload: PublicGameView }
+  | { type: "game.private_state"; payload: PrivateGameView | null }
   | { type: "room.closed"; payload: RoomClosedPayload }
   | { type: "error"; payload: ServerErrorPayload };
 
@@ -224,6 +294,16 @@ export const previewGameManifests: GameManifest[] = [
     minPlayers: 1,
     maxPlayers: 8,
     status: "shell"
+  },
+  {
+    id: "imposter-crash",
+    name: "Imposter Crash",
+    tagline: "Find the hidden player",
+    description:
+      "A social deduction game where crew players know the secret word and one imposter only sees the category.",
+    minPlayers: 3,
+    maxPlayers: 8,
+    status: "playable"
   }
 ];
 
@@ -323,6 +403,7 @@ export const mockRoomSnapshot: RoomSnapshot = {
     }
   ],
   activeHostVote: null,
+  activeGame: null,
   availableGames: previewGameManifests,
   playerCount: 6,
   maxPlayers: 8,
@@ -395,6 +476,7 @@ export function createEmptyRoomSnapshot({
     players: [],
     messages: [],
     activeHostVote: null,
+    activeGame: null,
     availableGames: availableGames.map((game) => ({ ...game })),
     playerCount: 0,
     maxPlayers,
@@ -696,6 +778,10 @@ export function selectLocalGame(
   const host = next.players.find((player) => player.id === hostPlayerId);
   const game = next.availableGames.find((candidate) => candidate.id === gameId);
 
+  if (next.status !== "lobby") {
+    return blocked(next, "Games can only be selected in the lobby.");
+  }
+
   if (!host || host.connectionStatus !== "connected" || next.hostPlayerId !== hostPlayerId) {
     return blocked(next, "Only the current host can select games.");
   }
@@ -705,6 +791,7 @@ export function selectLocalGame(
   }
 
   next.selectedGameId = game.id;
+  next.activeGame = null;
 
   return success(normalizeRoom(next), `${host.name} selected ${game.name}.`);
 }
@@ -778,6 +865,7 @@ export function reconnectLocalPlayer(room: RoomSnapshot, playerId: string): Lobb
 function cloneRoom(room: RoomSnapshot): RoomSnapshot {
   return {
     ...room,
+    activeGame: clonePublicGameView(room.activeGame),
     availableGames: room.availableGames.map((game) => ({ ...game })),
     players: room.players.map((player) => ({ ...player })),
     messages: room.messages.map((message) => ({ ...message })),
@@ -797,6 +885,7 @@ function normalizeRoom(room: RoomSnapshot): RoomSnapshot {
   const selectedGameId = availableGames.some((game) => game.id === room.selectedGameId)
     ? room.selectedGameId
     : null;
+  const activeGame = clonePublicGameView(room.activeGame);
   const connectedEligibleIds = new Set(
     room.players
       .filter((player) => player.connectionStatus === "connected")
@@ -826,6 +915,7 @@ function normalizeRoom(room: RoomSnapshot): RoomSnapshot {
 
   return {
     ...room,
+    activeGame,
     availableGames,
     hostPlayerId,
     playerCount: room.players.length,
@@ -898,4 +988,21 @@ function success(room: RoomSnapshot, notice: string): LobbyActionResult {
 
 function blocked(room: RoomSnapshot, notice: string): LobbyActionResult {
   return { notice, room: normalizeRoom(room), status: "blocked" };
+}
+
+function clonePublicGameView(game: PublicGameView | null): PublicGameView | null {
+  return game
+    ? {
+        ...game,
+        playerIds: [...game.playerIds],
+        results: game.results
+          ? {
+              ...game.results,
+              mostVotedPlayerIds: [...game.results.mostVotedPlayerIds],
+              voteCounts: game.results.voteCounts.map((count) => ({ ...count }))
+            }
+          : null,
+        voteProgress: game.voteProgress.map((vote) => ({ ...vote }))
+      }
+    : null;
 }
