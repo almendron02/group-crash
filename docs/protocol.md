@@ -83,11 +83,37 @@ export interface GameManifest {
 
 Public game views are safe for the TV and all players. Private game views are sent only to the matching player controller.
 
+`Imposter Crash` uses `discussion`, `voting`, and `results` phases. `Sketch Crash` uses `drawing`, `guessing`, and `results` phases.
+
 ```ts
+export interface SketchPoint {
+  x: number;
+  y: number;
+}
+
+export interface SketchStrokeInput {
+  color: string;
+  points: SketchPoint[];
+  size: number;
+}
+
+export interface SketchStroke extends SketchStrokeInput {
+  createdAt: number;
+  id: string;
+  playerId: string;
+}
+
+export interface PublicSketchGuess {
+  createdAt: number;
+  isCorrect: boolean;
+  playerId: string;
+  text: string | null;
+}
+
 export interface PublicGameView {
   gameId: string;
   name: string;
-  phase: "discussion" | "voting" | "results";
+  phase: "discussion" | "voting" | "drawing" | "guessing" | "results";
   category: string;
   playerIds: string[];
   results: PublicGameResults | null;
@@ -95,18 +121,29 @@ export interface PublicGameView {
   voteProgress: Array<{ playerId: string; hasVoted: boolean }>;
   votesCast: number;
   votesNeeded: number;
+  drawerPlayerId?: string;
+  drawingPromptHint?: string;
+  guesses?: PublicSketchGuess[];
+  guessesNeeded?: number;
+  guessesSubmitted?: number;
+  strokes?: SketchStroke[];
 }
 
 export interface PrivateGameView {
   gameId: string;
   playerId: string;
-  phase: "discussion" | "voting" | "results";
-  role: "crew" | "imposter";
+  phase: "discussion" | "voting" | "drawing" | "guessing" | "results";
+  role: "crew" | "imposter" | "drawer" | "guesser";
   category: string;
   secretWord: string | null;
   canVote: boolean;
   votedForPlayerId: string | null;
   results: PublicGameResults | null;
+  canDraw?: boolean;
+  canGuess?: boolean;
+  prompt?: string | null;
+  strokes?: SketchStroke[];
+  submittedGuess?: string | null;
 }
 ```
 
@@ -128,7 +165,9 @@ export type ClientEvent =
   | { type: "game.select"; payload: SelectGamePayload }
   | { type: "game.start"; payload: StartGamePayload }
   | { type: "game.advance"; payload: AdvanceGamePayload }
-  | { type: "game.vote.cast"; payload: CastGameVotePayload };
+  | { type: "game.vote.cast"; payload: CastGameVotePayload }
+  | { type: "game.sketch.stroke"; payload: SendSketchStrokePayload }
+  | { type: "game.sketch.guess"; payload: SubmitSketchGuessPayload };
 ```
 
 Payloads:
@@ -198,13 +237,25 @@ export interface StartGamePayload {
 export interface AdvanceGamePayload {
   roomCode: string;
   hostPlayerId: string;
-  action: "start_voting" | "return_lobby";
+  action: "start_voting" | "start_guessing" | "show_results" | "return_lobby";
 }
 
 export interface CastGameVotePayload {
   roomCode: string;
   playerId: string;
   targetPlayerId: string;
+}
+
+export interface SendSketchStrokePayload {
+  roomCode: string;
+  playerId: string;
+  stroke: SketchStrokeInput;
+}
+
+export interface SubmitSketchGuessPayload {
+  roomCode: string;
+  playerId: string;
+  guess: string;
 }
 ```
 

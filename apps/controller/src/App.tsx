@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Crown,
   DoorOpen,
   Eye,
   Gamepad2,
   MessageCircle,
+  Palette,
   Play,
   Send,
   ShieldAlert,
@@ -21,7 +22,9 @@ import {
   type PrivateGameView,
   type PublicPlayer,
   type RoomSnapshot,
-  type ServerEvent
+  type ServerEvent,
+  type SketchPoint,
+  type SketchStroke
 } from "@group-crash/protocol";
 import {
   Badge,
@@ -424,7 +427,9 @@ export function App() {
     });
   }
 
-  function advanceGameFromPhone(action: "start_voting" | "return_lobby") {
+  function advanceGameFromPhone(
+    action: "start_voting" | "start_guessing" | "show_results" | "return_lobby"
+  ) {
     if (!playerSession) {
       setFeedback("Join the room before advancing a game.");
       return;
@@ -452,6 +457,42 @@ export function App() {
         playerId: playerSession.playerId,
         roomCode: playerSession.roomCode,
         targetPlayerId
+      }
+    });
+  }
+
+  function sendSketchStrokeFromPhone(points: SketchPoint[]) {
+    if (!playerSession) {
+      setFeedback("Join the room before drawing.");
+      return;
+    }
+
+    sendEvent({
+      type: "game.sketch.stroke",
+      payload: {
+        playerId: playerSession.playerId,
+        roomCode: playerSession.roomCode,
+        stroke: {
+          color: "#291313",
+          points,
+          size: 7
+        }
+      }
+    });
+  }
+
+  function submitSketchGuessFromPhone(guess: string) {
+    if (!playerSession) {
+      setFeedback("Join the room before guessing.");
+      return;
+    }
+
+    sendEvent({
+      type: "game.sketch.guess",
+      payload: {
+        guess,
+        playerId: playerSession.playerId,
+        roomCode: playerSession.roomCode
       }
     });
   }
@@ -670,6 +711,10 @@ export function App() {
             room={room}
             onLeaveRoom={leaveRoomFromPhone}
             onReturnLobby={() => advanceGameFromPhone("return_lobby")}
+            onShowResults={() => advanceGameFromPhone("show_results")}
+            onSketchGuess={submitSketchGuessFromPhone}
+            onSketchStroke={sendSketchStrokeFromPhone}
+            onStartGuessing={() => advanceGameFromPhone("start_guessing")}
             onStartVoting={() => advanceGameFromPhone("start_voting")}
             onVote={castGameVoteFromPhone}
           />
@@ -843,8 +888,10 @@ function HostController({
         )}
         <p>
           {selectedGame
-            ? `${selectedGame.name} is selected. Start will unlock when a playable module exists.`
-            : "Select a module shell to prove the platform registry is wired."}
+            ? selectedGame.status === "playable"
+              ? `${selectedGame.name} is selected. Start when enough players are connected.`
+              : `${selectedGame.name} is a shell and cannot start yet.`
+            : "Select a playable game module to start a round."}
         </p>
       </div>
 
@@ -1011,6 +1058,10 @@ interface GameControllerProps {
   room: RoomSnapshot | null;
   onLeaveRoom: () => void;
   onReturnLobby: () => void;
+  onShowResults: () => void;
+  onSketchGuess: (guess: string) => void;
+  onSketchStroke: (points: SketchPoint[]) => void;
+  onStartGuessing: () => void;
   onStartVoting: () => void;
   onVote: (targetPlayerId: string) => void;
 }
@@ -1023,10 +1074,34 @@ function GameController({
   room,
   onLeaveRoom,
   onReturnLobby,
+  onShowResults,
+  onSketchGuess,
+  onSketchStroke,
+  onStartGuessing,
   onStartVoting,
   onVote
 }: GameControllerProps) {
   const activeGame = room?.activeGame;
+
+  if (activeGame?.gameId === "sketch-crash") {
+    return (
+      <SketchGameController
+        activeGame={activeGame}
+        feedback={feedback}
+        isHost={isHost}
+        player={player}
+        privateGame={privateGame}
+        room={room}
+        onLeaveRoom={onLeaveRoom}
+        onReturnLobby={onReturnLobby}
+        onShowResults={onShowResults}
+        onSketchGuess={onSketchGuess}
+        onSketchStroke={onSketchStroke}
+        onStartGuessing={onStartGuessing}
+      />
+    );
+  }
+
   const results = activeGame?.results ?? privateGame?.results ?? null;
   const imposter = room?.players.find(
     (candidate) => candidate.id === results?.imposterPlayerId
@@ -1142,4 +1217,270 @@ function GameController({
       </Button>
     </section>
   );
+}
+
+interface SketchGameControllerProps {
+  activeGame: NonNullable<RoomSnapshot["activeGame"]>;
+  feedback: string;
+  isHost: boolean;
+  player: PublicPlayer;
+  privateGame: PrivateGameView | null;
+  room: RoomSnapshot | null;
+  onLeaveRoom: () => void;
+  onReturnLobby: () => void;
+  onShowResults: () => void;
+  onSketchGuess: (guess: string) => void;
+  onSketchStroke: (points: SketchPoint[]) => void;
+  onStartGuessing: () => void;
+}
+
+function SketchGameController({
+  activeGame,
+  feedback,
+  isHost,
+  player,
+  privateGame,
+  room,
+  onLeaveRoom,
+  onReturnLobby,
+  onShowResults,
+  onSketchGuess,
+  onSketchStroke,
+  onStartGuessing
+}: SketchGameControllerProps) {
+  const [guess, setGuess] = useState("");
+  const drawer = room?.players.find(
+    (candidate) => candidate.id === activeGame.drawerPlayerId
+  );
+  const submittedGuess = privateGame?.submittedGuess ?? null;
+  const correctGuessNames =
+    activeGame.results?.correctPlayerIds
+      ?.map((playerId) => room?.players.find((candidate) => candidate.id === playerId)?.name)
+      .filter(Boolean)
+      .join(", ") || "No one";
+
+  function submitGuess() {
+    const trimmed = guess.trim();
+
+    if (!trimmed) {
+      return;
+    }
+
+    onSketchGuess(trimmed);
+    setGuess("");
+  }
+
+  return (
+    <section className="phone-card game-card sketch-card">
+      <div className="player-strip">
+        <ChessAvatarBadge avatar={player.avatar} selected size="sm" />
+        <div>
+          <strong>{player.name}</strong>
+          <span>{activeGame.name}</span>
+        </div>
+        <Badge tone="yellow" icon={<Palette aria-hidden="true" />}>
+          {activeGame.phase}
+        </Badge>
+      </div>
+
+      <div className="role-card sketch-role-card" data-role={privateGame?.role ?? "waiting"}>
+        <div className="section-label">
+          <Eye aria-hidden="true" />
+          <span>{privateGame?.role === "drawer" ? "Your prompt" : "Your mission"}</span>
+        </div>
+        {privateGame?.role === "drawer" ? (
+          <>
+            <strong>You draw for the room</strong>
+            <p>Category: {privateGame.category}</p>
+            <h2>{privateGame.prompt ?? privateGame.secretWord}</h2>
+          </>
+        ) : (
+          <>
+            <strong>{drawer?.name ?? "Someone"} is drawing</strong>
+            <p>Category: {activeGame.category}</p>
+            <h2>{activeGame.drawingPromptHint ?? "Watch TV"}</h2>
+          </>
+        )}
+      </div>
+
+      <DrawingPad
+        canDraw={Boolean(privateGame?.canDraw)}
+        strokes={activeGame.strokes ?? []}
+        onStroke={onSketchStroke}
+      />
+
+      {activeGame.phase === "drawing" ? (
+        <div className="game-phase-card">
+          <Badge tone="cream">Drawing</Badge>
+          <p>
+            {privateGame?.canDraw
+              ? "Draw on this pad. Every finished stroke appears on the TV."
+              : "Watch the TV while the drawer sketches the prompt."}
+          </p>
+          {isHost ? (
+            <Button variant="primary" icon={<Send aria-hidden="true" />} onClick={onStartGuessing}>
+              Open guesses
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {activeGame.phase === "guessing" ? (
+        <div className="game-phase-card">
+          <Badge tone="cream">
+            {activeGame.guessesSubmitted ?? 0}/{activeGame.guessesNeeded ?? 0} guesses
+          </Badge>
+          {privateGame?.role === "guesser" ? (
+            <>
+              <p>{submittedGuess ? `Your guess: ${submittedGuess}` : "Type the secret prompt."}</p>
+              <input
+                className="text-input sketch-guess-input"
+                disabled={!privateGame.canGuess}
+                maxLength={40}
+                placeholder="Your guess"
+                value={guess}
+                onChange={(event) => setGuess(event.target.value)}
+              />
+              <Button
+                disabled={!privateGame.canGuess || guess.trim().length === 0}
+                variant="primary"
+                onClick={submitGuess}
+              >
+                Lock guess
+              </Button>
+            </>
+          ) : (
+            <p>Guessers are locking answers on their phones.</p>
+          )}
+          {isHost ? (
+            <Button variant="secondary" onClick={onShowResults}>
+              Show results
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {activeGame.phase === "results" && activeGame.results ? (
+        <div className="game-phase-card result-card">
+          <Badge tone="yellow" icon={<Trophy aria-hidden="true" />}>
+            {activeGame.results.winner === "guessers" ? "Guessers win" : "Drawer wins"}
+          </Badge>
+          <h2>{activeGame.results.prompt}</h2>
+          <p>Correct: {correctGuessNames}</p>
+          {isHost ? (
+            <Button variant="primary" onClick={onReturnLobby}>
+              Return lobby
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <p className="phone-feedback" aria-live="polite">
+        {feedback}
+      </p>
+      <Button variant="destructive" onClick={onLeaveRoom}>
+        Leave room
+      </Button>
+    </section>
+  );
+}
+
+function DrawingPad({
+  canDraw,
+  onStroke,
+  strokes
+}: {
+  canDraw: boolean;
+  onStroke: (points: SketchPoint[]) => void;
+  strokes: SketchStroke[];
+}) {
+  const [currentPoints, setCurrentPoints] = useState<SketchPoint[]>([]);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  function getPoint(event: PointerEvent<SVGSVGElement>): SketchPoint {
+    const rect = event.currentTarget.getBoundingClientRect();
+
+    return {
+      x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))
+    };
+  }
+
+  function startStroke(event: PointerEvent<SVGSVGElement>) {
+    if (!canDraw) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setCurrentPoints([getPoint(event)]);
+  }
+
+  function continueStroke(event: PointerEvent<SVGSVGElement>) {
+    if (!canDraw || currentPoints.length === 0) {
+      return;
+    }
+
+    const nextPoint = getPoint(event);
+    const lastPoint = currentPoints[currentPoints.length - 1];
+    const distance = Math.hypot(nextPoint.x - lastPoint.x, nextPoint.y - lastPoint.y);
+
+    if (distance < 0.01) {
+      return;
+    }
+
+    setCurrentPoints((points) => [...points, nextPoint].slice(-80));
+  }
+
+  function finishStroke() {
+    if (currentPoints.length >= 2) {
+      onStroke(currentPoints);
+    }
+
+    setCurrentPoints([]);
+  }
+
+  return (
+    <div className="sketch-pad-shell">
+      <svg
+        ref={svgRef}
+        aria-label={canDraw ? "Drawing pad" : "Round sketch"}
+        className="sketch-pad"
+        role="img"
+        viewBox="0 0 100 100"
+        onPointerCancel={finishStroke}
+        onPointerDown={startStroke}
+        onPointerLeave={finishStroke}
+        onPointerMove={continueStroke}
+        onPointerUp={finishStroke}
+      >
+        <rect height="100" rx="7" width="100" x="0" y="0" />
+        {strokes.map((stroke) => (
+          <polyline
+            fill="none"
+            key={stroke.id}
+            points={pointsToPolyline(stroke.points)}
+            stroke={stroke.color}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={stroke.size / 2}
+          />
+        ))}
+        {currentPoints.length > 0 ? (
+          <polyline
+            fill="none"
+            points={pointsToPolyline(currentPoints)}
+            stroke="#e62727"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="3.5"
+          />
+        ) : null}
+      </svg>
+      <span>{canDraw ? "Draw here" : "Read-only sketch"}</span>
+    </div>
+  );
+}
+
+function pointsToPolyline(points: SketchPoint[]) {
+  return points.map((point) => `${point.x * 100},${point.y * 100}`).join(" ");
 }

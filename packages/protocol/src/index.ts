@@ -44,21 +44,50 @@ export interface HostVote {
 }
 
 export type GamePhase = "discussion" | "voting" | "results";
-export type GameRole = "crew" | "imposter";
-export type GameWinner = "crew" | "imposter";
+export type SketchPhase = "drawing" | "guessing" | "results";
+export type AnyGamePhase = GamePhase | SketchPhase;
+export type GameRole = "crew" | "imposter" | "drawer" | "guesser";
+export type GameWinner = "crew" | "imposter" | "drawer" | "guessers";
+
+export interface SketchPoint {
+  x: number;
+  y: number;
+}
+
+export interface SketchStrokeInput {
+  color: string;
+  points: SketchPoint[];
+  size: number;
+}
+
+export interface SketchStroke extends SketchStrokeInput {
+  createdAt: number;
+  id: string;
+  playerId: string;
+}
+
+export interface PublicSketchGuess {
+  createdAt: number;
+  isCorrect: boolean;
+  playerId: string;
+  text: string | null;
+}
 
 export interface PublicGameResults {
-  imposterPlayerId: string;
-  mostVotedPlayerIds: string[];
-  secretWord: string;
-  voteCounts: Array<{ playerId: string; votes: number }>;
+  correctPlayerIds?: string[];
+  guesses?: PublicSketchGuess[];
+  imposterPlayerId?: string;
+  mostVotedPlayerIds?: string[];
+  prompt?: string;
+  secretWord?: string;
+  voteCounts?: Array<{ playerId: string; votes: number }>;
   winner: GameWinner;
 }
 
 export interface PublicGameView {
   gameId: string;
   name: string;
-  phase: GamePhase;
+  phase: AnyGamePhase;
   category: string;
   playerIds: string[];
   results: PublicGameResults | null;
@@ -66,18 +95,29 @@ export interface PublicGameView {
   voteProgress: Array<{ playerId: string; hasVoted: boolean }>;
   votesCast: number;
   votesNeeded: number;
+  drawerPlayerId?: string;
+  drawingPromptHint?: string;
+  guesses?: PublicSketchGuess[];
+  guessesNeeded?: number;
+  guessesSubmitted?: number;
+  strokes?: SketchStroke[];
 }
 
 export interface PrivateGameView {
   gameId: string;
   playerId: string;
-  phase: GamePhase;
+  phase: AnyGamePhase;
   role: GameRole;
   category: string;
   secretWord: string | null;
   canVote: boolean;
   votedForPlayerId: string | null;
   results: PublicGameResults | null;
+  canDraw?: boolean;
+  canGuess?: boolean;
+  prompt?: string | null;
+  strokes?: SketchStroke[];
+  submittedGuess?: string | null;
 }
 
 export interface RoomSnapshot {
@@ -160,13 +200,25 @@ export interface StartGamePayload {
 export interface AdvanceGamePayload {
   roomCode: string;
   hostPlayerId: string;
-  action: "start_voting" | "return_lobby";
+  action: "start_voting" | "start_guessing" | "show_results" | "return_lobby";
 }
 
 export interface CastGameVotePayload {
   roomCode: string;
   playerId: string;
   targetPlayerId: string;
+}
+
+export interface SendSketchStrokePayload {
+  roomCode: string;
+  playerId: string;
+  stroke: SketchStrokeInput;
+}
+
+export interface SubmitSketchGuessPayload {
+  roomCode: string;
+  playerId: string;
+  guess: string;
 }
 
 export type ClientEvent =
@@ -182,7 +234,9 @@ export type ClientEvent =
   | { type: "game.select"; payload: SelectGamePayload }
   | { type: "game.start"; payload: StartGamePayload }
   | { type: "game.advance"; payload: AdvanceGamePayload }
-  | { type: "game.vote.cast"; payload: CastGameVotePayload };
+  | { type: "game.vote.cast"; payload: CastGameVotePayload }
+  | { type: "game.sketch.stroke"; payload: SendSketchStrokePayload }
+  | { type: "game.sketch.guess"; payload: SubmitSketchGuessPayload };
 
 export interface RoomCreatedPayload {
   roomId: string;
@@ -294,6 +348,16 @@ export const previewGameManifests: GameManifest[] = [
     minPlayers: 1,
     maxPlayers: 8,
     status: "shell"
+  },
+  {
+    id: "sketch-crash",
+    name: "Sketch Crash",
+    tagline: "Draw fast, guess faster",
+    description:
+      "A drawing party game where one phone becomes the sketch pad and everyone else guesses from their controllers.",
+    minPlayers: 2,
+    maxPlayers: 8,
+    status: "playable"
   },
   {
     id: "imposter-crash",
@@ -998,10 +1062,27 @@ function clonePublicGameView(game: PublicGameView | null): PublicGameView | null
         results: game.results
           ? {
               ...game.results,
-              mostVotedPlayerIds: [...game.results.mostVotedPlayerIds],
-              voteCounts: game.results.voteCounts.map((count) => ({ ...count }))
+              correctPlayerIds: game.results.correctPlayerIds
+                ? [...game.results.correctPlayerIds]
+                : undefined,
+              guesses: game.results.guesses
+                ? game.results.guesses.map((guess) => ({ ...guess }))
+                : undefined,
+              mostVotedPlayerIds: game.results.mostVotedPlayerIds
+                ? [...game.results.mostVotedPlayerIds]
+                : undefined,
+              voteCounts: game.results.voteCounts
+                ? game.results.voteCounts.map((count) => ({ ...count }))
+                : undefined
             }
           : null,
+        guesses: game.guesses ? game.guesses.map((guess) => ({ ...guess })) : undefined,
+        strokes: game.strokes
+          ? game.strokes.map((stroke) => ({
+              ...stroke,
+              points: stroke.points.map((point) => ({ ...point }))
+            }))
+          : undefined,
         voteProgress: game.voteProgress.map((vote) => ({ ...vote }))
       }
     : null;

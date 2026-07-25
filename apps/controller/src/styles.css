@@ -382,6 +382,14 @@ input {
   background: var(--gc-yellow);
 }
 
+.role-card[data-role="drawer"] {
+  background: var(--gc-yellow);
+}
+
+.role-card[data-role="guesser"] {
+  background: var(--gc-white);
+}
+
 .role-card strong,
 .result-card h2 {
   display: block;
@@ -448,6 +456,51 @@ input {
 
 .result-card {
   background: var(--gc-yellow);
+}
+
+.sketch-card {
+  gap: 10px;
+}
+
+.sketch-card .role-card h2 {
+  font-size: 32px;
+}
+
+.sketch-pad-shell {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--gc-white);
+  border: 3px solid var(--gc-ink);
+  border-radius: var(--gc-radius-lg);
+}
+
+.sketch-pad-shell span {
+  font-family: var(--gc-font-display);
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.sketch-pad {
+  width: 100%;
+  aspect-ratio: 1 / 0.78;
+  touch-action: none;
+  background: var(--gc-cream);
+  border: 3px solid var(--gc-ink);
+  border-radius: var(--gc-radius-md);
+  cursor: crosshair;
+}
+
+.sketch-pad rect {
+  fill: var(--gc-cream);
+}
+
+.sketch-guess-input {
+  min-height: 50px;
+  margin-top: 10px;
+  font-size: 22px;
 }
 
 @media (max-width: 430px) {

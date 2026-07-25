@@ -57,6 +57,9 @@ importers:
       '@group-crash/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@group-crash/sketch-crash':
+        specifier: workspace:*
+        version: link:../../games/sketch-crash
     devDependencies:
       '@types/node':
         specifier: ^24.10.2
@@ -100,6 +103,12 @@ importers:
         version: link:../../packages/game-sdk
 
   games/imposter-crash:
+    dependencies:
+      '@group-crash/game-sdk':
+        specifier: workspace:*
+        version: link:../../packages/game-sdk
+
+  games/sketch-crash:
     dependencies:
       '@group-crash/game-sdk':
         specifier: workspace:*

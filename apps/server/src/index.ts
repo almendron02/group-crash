@@ -11,6 +11,14 @@ import {
   type ImposterGameState
 } from "@group-crash/imposter-crash";
 import {
+  applySketchAction,
+  createSketchGameState,
+  createSketchPrivateView,
+  createSketchPublicView,
+  sketchCrashManifest,
+  type SketchGameState
+} from "@group-crash/sketch-crash";
+import {
   avatarOptions,
   castLocalHostVote,
   createEmptyRoomSnapshot,
@@ -40,7 +48,9 @@ import {
   type RoomSnapshot,
   type SelectGamePayload,
   type SendMessagePayload,
+  type SendSketchStrokePayload,
   type ServerErrorPayload,
+  type SubmitSketchGuessPayload,
   type ServerEvent,
   type StartGamePayload,
   type WatchRoomPayload
@@ -54,7 +64,7 @@ const cleanupIntervalMs = Number(process.env.CLEANUP_INTERVAL_MS ?? 15_000);
 const messageCooldownMs = Number(process.env.MESSAGE_COOLDOWN_MS ?? 1200);
 const maxMessageBytes = Number(process.env.MAX_MESSAGE_BYTES ?? 4096);
 const roomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const gameRegistry = [demoCrashManifest, imposterCrashManifest];
+const gameRegistry = [demoCrashManifest, sketchCrashManifest, imposterCrashManifest];
 
 interface SocketPeer {
   id: string;
@@ -76,10 +86,15 @@ interface RoomRecord {
   snapshot: RoomSnapshot;
 }
 
-type ActiveGameRecord = {
-  gameId: "imposter-crash";
-  state: ImposterGameState;
-};
+type ActiveGameRecord =
+  | {
+      gameId: "imposter-crash";
+      state: ImposterGameState;
+    }
+  | {
+      gameId: "sketch-crash";
+      state: SketchGameState;
+    };
 
 const roomsByCode = new Map<string, RoomRecord>();
 const peers = new Set<SocketPeer>();
@@ -229,6 +244,12 @@ function handleClientMessage(peer: SocketPeer, rawMessage: string) {
       break;
     case "game.vote.cast":
       handleGameVote(peer, event.payload);
+      break;
+    case "game.sketch.stroke":
+      handleSketchStroke(peer, event.payload);
+      break;
+    case "game.sketch.guess":
+      handleSketchGuess(peer, event.payload);
       break;
   }
 }
@@ -656,7 +677,7 @@ function handleGameStart(peer: SocketPeer, payload: StartGamePayload) {
     return;
   }
 
-  if (selectedGame.id !== imposterCrashManifest.id || selectedGame.status !== "playable") {
+  if (selectedGame.status !== "playable") {
     sendError(peer, "INVALID_GAME_ACTION", `${selectedGame.name} is not playable yet.`);
     return;
   }
@@ -665,23 +686,32 @@ function handleGameStart(peer: SocketPeer, payload: StartGamePayload) {
     .filter((player) => player.connectionStatus === "connected")
     .map((player) => player.id);
 
-  if (connectedPlayerIds.length < imposterCrashManifest.minPlayers) {
+  if (connectedPlayerIds.length < selectedGame.minPlayers) {
     sendError(
       peer,
       "NOT_ELIGIBLE",
-      `Imposter Crash needs at least ${imposterCrashManifest.minPlayers} players.`
+      `${selectedGame.name} needs at least ${selectedGame.minPlayers} players.`
     );
     return;
   }
 
-  const state = createImposterGameState({ playerIds: connectedPlayerIds });
-  record.activeGame = { gameId: "imposter-crash", state };
+  if (selectedGame.id === imposterCrashManifest.id) {
+    const state = createImposterGameState({ playerIds: connectedPlayerIds });
+    record.activeGame = { gameId: "imposter-crash", state };
+  } else if (selectedGame.id === sketchCrashManifest.id) {
+    const state = createSketchGameState({ playerIds: connectedPlayerIds });
+    record.activeGame = { gameId: "sketch-crash", state };
+  } else {
+    sendError(peer, "INVALID_GAME_ACTION", `${selectedGame.name} is not playable yet.`);
+    return;
+  }
+
   syncActiveGameSnapshot(record);
 
   broadcast(record, {
     type: "game.started",
     payload: {
-      gameId: imposterCrashManifest.id,
+      gameId: selectedGame.id,
       roomCode: record.snapshot.roomCode,
       startedByPlayerId: payload.hostPlayerId
     }
@@ -714,14 +744,50 @@ function handleGameAdvance(peer: SocketPeer, payload: AdvanceGamePayload) {
     return;
   }
 
-  if (record.activeGame.state.phase !== "discussion") {
-    sendError(peer, "INVALID_GAME_ACTION", "Voting can only start after discussion.");
+  if (record.activeGame.gameId === "imposter-crash") {
+    if (payload.action !== "start_voting") {
+      sendError(peer, "INVALID_GAME_ACTION", "That action does not belong to Imposter Crash.");
+      return;
+    }
+
+    if (record.activeGame.state.phase !== "discussion") {
+      sendError(peer, "INVALID_GAME_ACTION", "Voting can only start after discussion.");
+      return;
+    }
+
+    record.activeGame.state = applyImposterAction(record.activeGame.state, {
+      type: "start_voting"
+    });
+    syncActiveGameSnapshot(record);
+    broadcast(record, { type: "game.updated", payload: record.snapshot.activeGame! });
+    broadcastSnapshot(record);
+    broadcastPrivateGameStates(record);
     return;
   }
 
-  record.activeGame.state = applyImposterAction(record.activeGame.state, {
-    type: "start_voting"
-  });
+  if (payload.action === "start_guessing") {
+    if (record.activeGame.state.phase !== "drawing") {
+      sendError(peer, "INVALID_GAME_ACTION", "Guessing can only open after drawing.");
+      return;
+    }
+
+    record.activeGame.state = applySketchAction(record.activeGame.state, {
+      type: "start_guessing"
+    });
+  } else if (payload.action === "show_results") {
+    if (record.activeGame.state.phase !== "guessing") {
+      sendError(peer, "INVALID_GAME_ACTION", "Results can only show after guessing.");
+      return;
+    }
+
+    record.activeGame.state = applySketchAction(record.activeGame.state, {
+      type: "show_results"
+    });
+  } else {
+    sendError(peer, "INVALID_GAME_ACTION", "That action does not belong to Sketch Crash.");
+    return;
+  }
+
   syncActiveGameSnapshot(record);
   broadcast(record, { type: "game.updated", payload: record.snapshot.activeGame! });
   broadcastSnapshot(record);
@@ -737,6 +803,11 @@ function handleGameVote(peer: SocketPeer, payload: CastGameVotePayload) {
 
   if (!record.activeGame) {
     sendError(peer, "GAME_NOT_ACTIVE", "No game vote is active.");
+    return;
+  }
+
+  if (record.activeGame.gameId !== "imposter-crash") {
+    sendError(peer, "INVALID_GAME_ACTION", "This game does not use voting targets.");
     return;
   }
 
@@ -757,6 +828,72 @@ function handleGameVote(peer: SocketPeer, payload: CastGameVotePayload) {
     type: "cast_vote",
     playerId: payload.playerId,
     targetPlayerId: payload.targetPlayerId
+  });
+  syncActiveGameSnapshot(record);
+  broadcast(record, { type: "game.updated", payload: record.snapshot.activeGame! });
+  broadcastSnapshot(record);
+  broadcastPrivateGameStates(record);
+}
+
+function handleSketchStroke(peer: SocketPeer, payload: SendSketchStrokePayload) {
+  const record = assertPlayerAction(peer, payload.roomCode, payload.playerId);
+
+  if (!record) {
+    return;
+  }
+
+  if (!record.activeGame || record.activeGame.gameId !== "sketch-crash") {
+    sendError(peer, "GAME_NOT_ACTIVE", "No Sketch Crash round is active.");
+    return;
+  }
+
+  if (record.activeGame.state.phase !== "drawing") {
+    sendError(peer, "INVALID_GAME_ACTION", "Drawing is closed for this round.");
+    return;
+  }
+
+  if (record.activeGame.state.drawerPlayerId !== payload.playerId) {
+    sendError(peer, "NOT_ELIGIBLE", "Only the drawer can send strokes.");
+    return;
+  }
+
+  record.activeGame.state = applySketchAction(record.activeGame.state, {
+    type: "add_stroke",
+    playerId: payload.playerId,
+    stroke: payload.stroke
+  });
+  syncActiveGameSnapshot(record);
+  broadcast(record, { type: "game.updated", payload: record.snapshot.activeGame! });
+  broadcastSnapshot(record);
+  broadcastPrivateGameStates(record);
+}
+
+function handleSketchGuess(peer: SocketPeer, payload: SubmitSketchGuessPayload) {
+  const record = assertPlayerAction(peer, payload.roomCode, payload.playerId);
+
+  if (!record) {
+    return;
+  }
+
+  if (!record.activeGame || record.activeGame.gameId !== "sketch-crash") {
+    sendError(peer, "GAME_NOT_ACTIVE", "No Sketch Crash round is active.");
+    return;
+  }
+
+  if (record.activeGame.state.phase !== "guessing") {
+    sendError(peer, "INVALID_GAME_ACTION", "Guessing is not open yet.");
+    return;
+  }
+
+  if (record.activeGame.state.drawerPlayerId === payload.playerId) {
+    sendError(peer, "NOT_ELIGIBLE", "The drawer cannot submit a guess.");
+    return;
+  }
+
+  record.activeGame.state = applySketchAction(record.activeGame.state, {
+    type: "submit_guess",
+    guess: payload.guess,
+    playerId: payload.playerId
   });
   syncActiveGameSnapshot(record);
   broadcast(record, { type: "game.updated", payload: record.snapshot.activeGame! });
@@ -1020,9 +1157,7 @@ function sendSnapshot(peer: SocketPeer, record: RoomRecord) {
 function syncActiveGameSnapshot(record: RoomRecord) {
   record.snapshot = {
     ...record.snapshot,
-    activeGame: record.activeGame
-      ? createImposterPublicView(record.activeGame.state)
-      : null,
+    activeGame: createPublicGameView(record.activeGame),
     status: record.activeGame ? "playing" : "lobby"
   };
 }
@@ -1049,11 +1184,35 @@ function sendPrivateGameState(peer: SocketPeer, record: RoomRecord) {
     return;
   }
 
-  const payload: PrivateGameView | null = record.activeGame
-    ? createImposterPrivateView(record.activeGame.state, peer.playerId)
-    : null;
+  const payload: PrivateGameView | null = createPrivateGameView(
+    record.activeGame,
+    peer.playerId
+  );
 
   send(peer, { type: "game.private_state", payload });
+}
+
+function createPublicGameView(activeGame: ActiveGameRecord | null) {
+  if (!activeGame) {
+    return null;
+  }
+
+  return activeGame.gameId === "imposter-crash"
+    ? createImposterPublicView(activeGame.state)
+    : createSketchPublicView(activeGame.state);
+}
+
+function createPrivateGameView(
+  activeGame: ActiveGameRecord | null,
+  playerId: string
+): PrivateGameView | null {
+  if (!activeGame) {
+    return null;
+  }
+
+  return activeGame.gameId === "imposter-crash"
+    ? createImposterPrivateView(activeGame.state, playerId)
+    : createSketchPrivateView(activeGame.state, playerId);
 }
 
 function send(peer: SocketPeer, event: ServerEvent) {
@@ -1214,7 +1373,10 @@ function parseClientEvent(rawMessage: string): ClientEvent | null {
         return isRecord(payload) &&
           isRoomCode(payload.roomCode) &&
           isNonEmptyString(payload.hostPlayerId) &&
-          (payload.action === "start_voting" || payload.action === "return_lobby")
+          (payload.action === "start_voting" ||
+            payload.action === "start_guessing" ||
+            payload.action === "show_results" ||
+            payload.action === "return_lobby")
           ? {
               type: "game.advance",
               payload: {
@@ -1235,6 +1397,36 @@ function parseClientEvent(rawMessage: string): ClientEvent | null {
                 playerId: payload.playerId,
                 roomCode: normalizeRoomCode(payload.roomCode),
                 targetPlayerId: payload.targetPlayerId
+              }
+            }
+          : null;
+      case "game.sketch.stroke":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.playerId) &&
+          isSketchStrokeInput(payload.stroke)
+          ? {
+              type: "game.sketch.stroke",
+              payload: {
+                playerId: payload.playerId,
+                roomCode: normalizeRoomCode(payload.roomCode),
+                stroke: payload.stroke
+              }
+            }
+          : null;
+      case "game.sketch.guess":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.playerId) &&
+          typeof payload.guess === "string" &&
+          payload.guess.trim().length >= 1 &&
+          payload.guess.trim().length <= 40
+          ? {
+              type: "game.sketch.guess",
+              payload: {
+                guess: payload.guess,
+                playerId: payload.playerId,
+                roomCode: normalizeRoomCode(payload.roomCode)
               }
             }
           : null;
@@ -1264,6 +1456,35 @@ function normalizeRoomCode(value: string) {
 
 function isGameId(value: unknown): value is string {
   return typeof value === "string" && /^[a-z0-9-]{2,48}$/.test(value.trim().toLowerCase());
+}
+
+function isSketchStrokeInput(value: unknown): value is SendSketchStrokePayload["stroke"] {
+  if (!isRecord(value) || !Array.isArray(value.points)) {
+    return false;
+  }
+
+  return (
+    typeof value.color === "string" &&
+    /^#[0-9a-f]{6}$/i.test(value.color) &&
+    typeof value.size === "number" &&
+    Number.isFinite(value.size) &&
+    value.size >= 1 &&
+    value.size <= 24 &&
+    value.points.length >= 2 &&
+    value.points.length <= 80 &&
+    value.points.every(
+      (point) =>
+        isRecord(point) &&
+        typeof point.x === "number" &&
+        Number.isFinite(point.x) &&
+        point.x >= 0 &&
+        point.x <= 1 &&
+        typeof point.y === "number" &&
+        Number.isFinite(point.y) &&
+        point.y >= 0 &&
+        point.y <= 1
+    )
+  );
 }
 
 function normalizeGameId(value: string) {

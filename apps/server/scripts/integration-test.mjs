@@ -42,6 +42,7 @@ try {
   await testInvalidPayload();
   await testMessageRateLimitAndHostPass();
   await testImposterGameFlow();
+  await testSketchGameFlow();
   await testReconnectGraceKeepsHost();
   await testHostReassignsAfterGrace();
   await testRoomExpiration();
@@ -251,6 +252,176 @@ async function testImposterGameFlow() {
     }
   });
   await maya.client.waitFor("error", (event) => event.payload.code === "NOT_HOST");
+
+  alex.client.send({
+    type: "game.advance",
+    payload: {
+      action: "return_lobby",
+      hostPlayerId: alex.session.playerId,
+      roomCode
+    }
+  });
+  await tv.waitFor(
+    "room.snapshot",
+    (event) => event.payload.status === "lobby" && event.payload.activeGame === null
+  );
+
+  [tv, alex.client, maya.client, jay.client].forEach((client) => client.close());
+}
+
+async function testSketchGameFlow() {
+  const tv = await connectClient("tv-sketch");
+  const roomCode = await createRoom(tv);
+  const alex = await joinPlayer(roomCode, "Alex", "king");
+  const maya = await joinPlayer(roomCode, "Maya", "queen");
+  const jay = await joinPlayer(roomCode, "Jay", "bishop");
+  const players = [alex, maya, jay];
+  await tv.waitFor("room.snapshot", (event) => event.payload.playerCount === 3);
+
+  alex.client.send({
+    type: "game.select",
+    payload: {
+      gameId: "sketch-crash",
+      hostPlayerId: alex.session.playerId,
+      roomCode
+    }
+  });
+  await tv.waitFor(
+    "room.snapshot",
+    (event) => event.payload.selectedGameId === "sketch-crash"
+  );
+
+  alex.client.send({
+    type: "game.start",
+    payload: {
+      hostPlayerId: alex.session.playerId,
+      roomCode
+    }
+  });
+  const drawingSnapshot = await tv.waitFor(
+    "room.snapshot",
+    (event) =>
+      event.payload.status === "playing" &&
+      event.payload.activeGame?.gameId === "sketch-crash" &&
+      event.payload.activeGame.phase === "drawing"
+  );
+  const drawerPlayerId = drawingSnapshot.payload.activeGame.drawerPlayerId;
+
+  const privateStates = await Promise.all(
+    players.map((player) =>
+      player.client.waitFor(
+        "game.private_state",
+        (event) => event.payload?.gameId === "sketch-crash"
+      )
+    )
+  );
+  const drawerPrivateState = privateStates.find(
+    (event) => event.payload.role === "drawer"
+  );
+  assert.ok(drawerPrivateState);
+  assert.equal(drawerPrivateState.payload.playerId, drawerPlayerId);
+  assert.equal(typeof drawerPrivateState.payload.prompt, "string");
+
+  const drawer = players.find((player) => player.session.playerId === drawerPlayerId);
+  const guessers = players.filter((player) => player.session.playerId !== drawerPlayerId);
+  assert.ok(drawer);
+  assert.equal(guessers.length, 2);
+
+  guessers[0].client.send({
+    type: "game.sketch.stroke",
+    payload: {
+      playerId: guessers[0].session.playerId,
+      roomCode,
+      stroke: {
+        color: "#291313",
+        points: [
+          { x: 0.1, y: 0.1 },
+          { x: 0.5, y: 0.5 }
+        ],
+        size: 7
+      }
+    }
+  });
+  await guessers[0].client.waitFor(
+    "error",
+    (event) => event.payload.code === "NOT_ELIGIBLE"
+  );
+
+  drawer.client.send({
+    type: "game.sketch.stroke",
+    payload: {
+      playerId: drawer.session.playerId,
+      roomCode,
+      stroke: {
+        color: "#291313",
+        points: [
+          { x: 0.1, y: 0.1 },
+          { x: 0.35, y: 0.35 },
+          { x: 0.8, y: 0.2 }
+        ],
+        size: 7
+      }
+    }
+  });
+  await tv.waitFor(
+    "room.snapshot",
+    (event) => event.payload.activeGame?.strokes?.length === 1
+  );
+
+  alex.client.send({
+    type: "game.advance",
+    payload: {
+      action: "start_guessing",
+      hostPlayerId: alex.session.playerId,
+      roomCode
+    }
+  });
+  await tv.waitFor(
+    "room.snapshot",
+    (event) => event.payload.activeGame?.phase === "guessing"
+  );
+
+  drawer.client.send({
+    type: "game.sketch.guess",
+    payload: {
+      guess: "I drew it",
+      playerId: drawer.session.playerId,
+      roomCode
+    }
+  });
+  await drawer.client.waitFor(
+    "error",
+    (event) => event.payload.code === "NOT_ELIGIBLE"
+  );
+
+  guessers[0].client.send({
+    type: "game.sketch.guess",
+    payload: {
+      guess: drawerPrivateState.payload.prompt,
+      playerId: guessers[0].session.playerId,
+      roomCode
+    }
+  });
+  guessers[1].client.send({
+    type: "game.sketch.guess",
+    payload: {
+      guess: "banana castle",
+      playerId: guessers[1].session.playerId,
+      roomCode
+    }
+  });
+
+  const results = await tv.waitFor(
+    "room.snapshot",
+    (event) =>
+      event.payload.activeGame?.phase === "results" &&
+      event.payload.activeGame.results?.winner === "guessers"
+  );
+  assert.ok(
+    results.payload.activeGame.results.correctPlayerIds.includes(
+      guessers[0].session.playerId
+    )
+  );
 
   alex.client.send({
     type: "game.advance",

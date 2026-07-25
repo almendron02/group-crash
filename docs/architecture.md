@@ -47,6 +47,7 @@ packages/
 games/
   demo-crash/
   imposter-crash/
+  sketch-crash/
 ```
 
 ## TV App
@@ -135,6 +136,8 @@ games/demo-crash
 `Demo Crash` exposes a manifest and placeholder state. It is not playable; it exists to prove that the server can register game modules and let the current host select one.
 
 `Imposter Crash` is the first playable module. Its full secret state lives on the server. Public TV snapshots show phase, category, players, vote progress and results. Private phone snapshots show each player's own role and clue.
+
+`Sketch Crash` is the second playable module. Its full prompt, drawer choice, strokes, guesses and results live on the server. Public TV snapshots show the drawer, category, drawing strokes, guess counts and final revealed guesses. Private phone snapshots show only whether a player is the drawer or a guesser; only the drawer receives the actual prompt before results.
 
 Future game modules should define:
 

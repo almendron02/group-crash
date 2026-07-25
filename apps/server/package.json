@@ -12,7 +12,8 @@
   "dependencies": {
     "@group-crash/demo-crash": "workspace:*",
     "@group-crash/imposter-crash": "workspace:*",
-    "@group-crash/protocol": "workspace:*"
+    "@group-crash/protocol": "workspace:*",
+    "@group-crash/sketch-crash": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.10.2",

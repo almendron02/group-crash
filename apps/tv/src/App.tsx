@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Gamepad2,
   MessageCircle,
+  Palette,
   ShieldAlert,
   Trophy,
   UsersRound,
@@ -203,7 +204,9 @@ export function App() {
         <RoomCodePill code={roomCode} />
       </section>
 
-      {displayRoom.activeGame ? (
+      {displayRoom.activeGame?.gameId === "sketch-crash" ? (
+        <SketchTvGame room={displayRoom} />
+      ) : displayRoom.activeGame ? (
         <ImposterTvGame room={displayRoom} />
       ) : (
       <section className="tv-layout" aria-label="Live lobby">
@@ -320,7 +323,7 @@ function ImposterTvGame({ room }: { room: RoomSnapshot }) {
   }
 
   const playerById = new Map(room.players.map((player) => [player.id, player]));
-  const imposter = game.results
+  const imposter = game.results?.imposterPlayerId
     ? playerById.get(game.results.imposterPlayerId)
     : null;
 
@@ -363,7 +366,7 @@ function ImposterTvGame({ room }: { room: RoomSnapshot }) {
               <p>
                 {imposter?.name ?? "The imposter"} was the imposter. Secret word:
                 {" "}
-                {game.results.secretWord}
+                {game.results.secretWord ?? "Unknown"}
               </p>
             </>
           ) : null}
@@ -410,7 +413,7 @@ function ImposterTvGame({ room }: { room: RoomSnapshot }) {
             <Badge tone="yellow" icon={<Trophy aria-hidden="true" />}>
               Results
             </Badge>
-            {game.results.voteCounts.map((count) => {
+            {(game.results.voteCounts ?? []).map((count) => {
               const player = playerById.get(count.playerId);
 
               return player ? (
@@ -425,4 +428,137 @@ function ImposterTvGame({ room }: { room: RoomSnapshot }) {
       </aside>
     </section>
   );
+}
+
+function SketchTvGame({ room }: { room: RoomSnapshot }) {
+  const game = room.activeGame;
+
+  if (!game) {
+    return null;
+  }
+
+  const playerById = new Map(room.players.map((player) => [player.id, player]));
+  const drawer = game.drawerPlayerId ? playerById.get(game.drawerPlayerId) : null;
+  const correctNames =
+    game.results?.correctPlayerIds
+      ?.map((playerId) => playerById.get(playerId)?.name)
+      .filter(Boolean)
+      .join(", ") || "No one";
+
+  return (
+    <section className="tv-game-layout tv-sketch-layout" aria-label="Sketch game">
+      <section className="tv-game-main panel tv-sketch-main">
+        <div className="panel-heading">
+          <div>
+            <Badge tone="yellow" icon={<Palette aria-hidden="true" />}>
+              {game.phase}
+            </Badge>
+            <h1>{game.name}</h1>
+          </div>
+          <div className="tv-game-category">
+            <span>Category</span>
+            <strong>{game.category}</strong>
+          </div>
+        </div>
+
+        <div className="tv-sketch-board">
+          <svg aria-label="Live sketch" role="img" viewBox="0 0 100 100">
+            <rect height="100" rx="5" width="100" x="0" y="0" />
+            {(game.strokes ?? []).map((stroke) => (
+              <polyline
+                fill="none"
+                key={stroke.id}
+                points={pointsToPolyline(stroke.points)}
+                stroke={stroke.color}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={stroke.size / 2}
+              />
+            ))}
+          </svg>
+        </div>
+
+        <div className="tv-sketch-caption">
+          {game.phase === "drawing" ? (
+            <>
+              <h2>{drawer?.name ?? "The drawer"} is drawing.</h2>
+              <p>Prompt hint: {game.drawingPromptHint ?? "watch the sketch"}</p>
+            </>
+          ) : null}
+          {game.phase === "guessing" ? (
+            <>
+              <h2>Guess now.</h2>
+              <p>
+                {game.guessesSubmitted ?? 0}/{game.guessesNeeded ?? 0} guesses locked.
+              </p>
+            </>
+          ) : null}
+          {game.phase === "results" && game.results ? (
+            <>
+              <h2>{game.results.prompt}</h2>
+              <p>Correct guesses: {correctNames}</p>
+            </>
+          ) : null}
+        </div>
+      </section>
+
+      <aside className="tv-game-side">
+        <div className="panel tv-game-roster">
+          <div className="panel-heading compact">
+            <Badge tone="cream" icon={<UsersRound aria-hidden="true" />}>
+              Players
+            </Badge>
+          </div>
+          <div className="tv-game-player-list">
+            {game.playerIds.map((playerId) => {
+              const player = playerById.get(playerId);
+              const submittedGuess = game.guesses?.some(
+                (guess) => guess.playerId === playerId
+              );
+
+              return player ? (
+                <div className="tv-game-player" key={player.id}>
+                  <ChessAvatar
+                    avatar={player.avatar}
+                    selected={game.drawerPlayerId === player.id}
+                    size="sm"
+                  />
+                  <span>{player.name}</span>
+                  <strong>
+                    {game.drawerPlayerId === player.id
+                      ? "drawer"
+                      : game.phase === "guessing" && submittedGuess
+                        ? "guessed"
+                        : game.phase}
+                  </strong>
+                </div>
+              ) : null;
+            })}
+          </div>
+        </div>
+
+        {game.phase === "results" && game.results ? (
+          <div className="panel tv-game-results">
+            <Badge tone="yellow" icon={<Trophy aria-hidden="true" />}>
+              Results
+            </Badge>
+            {(game.results.guesses ?? []).map((guess) => {
+              const player = playerById.get(guess.playerId);
+
+              return player ? (
+                <div className="tv-vote-row" key={guess.playerId}>
+                  <span>{player.name}</span>
+                  <strong>{guess.isCorrect ? "hit" : guess.text ?? "miss"}</strong>
+                </div>
+              ) : null;
+            })}
+          </div>
+        ) : null}
+      </aside>
+    </section>
+  );
+}
+
+function pointsToPolyline(points: Array<{ x: number; y: number }>) {
+  return points.map((point) => `${point.x * 100},${point.y * 100}`).join(" ");
 }

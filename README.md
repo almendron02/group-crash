@@ -4,7 +4,7 @@ Group Crash is a web-first second-screen multiplayer game platform for TV and ph
 
 The TV shows the shared lobby and game experience. Players scan a QR code, join from their phones, send quick messages, request host control, vote on host changes, and eventually use their phones as private controllers for modular party games.
 
-The current development milestone is the lobby plus the first playable modular game, `Imposter Crash`.
+The current development milestone is the lobby plus playable modular games: `Imposter Crash` and `Sketch Crash`.
 
 ## MVP Scope
 
@@ -17,7 +17,7 @@ The lobby MVP includes:
 - Host request and majority host-transfer vote
 - Voluntary room leave with automatic host reassignment
 - Quick messages from phones to the TV lobby
-- Modular game registry shell with a non-playable `Demo Crash` module
+- Modular game registry with non-playable `Demo Crash` plus playable `Imposter Crash` and `Sketch Crash`
 - Host-only game selection
 - Selected game display on TV and host controller
 - Server-authoritative room state
@@ -25,7 +25,6 @@ The lobby MVP includes:
 
 The MVP does not include:
 
-- Multiple playable games
 - Public matchmaking
 - User accounts
 - Persistent profiles
@@ -103,9 +102,9 @@ group-crash/
 3. Connect TV and phones through the server.
 4. Harden reconnect grace, room expiration, and tests.
 5. Add modular game registry shell.
-6. Build the first playable game module.
+6. Build playable game modules.
 7. Package the TV client for Google TV after the browser version works reliably.
 
 ## Current Status
 
-Milestone 6 is in progress. The TV and phone controller connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, host transfer, reconnect grace, room expiration, host-only game selection, and a playable `Imposter Crash` game loop. The server keeps the imposter role and secret word authoritative, sends private role state only to each player's phone, and broadcasts public game state to the TV.
+Milestone 6 is in progress. The TV and phone controller connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, host transfer, reconnect grace, room expiration, host-only game selection, and playable `Imposter Crash` and `Sketch Crash` loops. The server keeps secret roles, prompts, drawing strokes, guesses, and game results authoritative, sends private state only to the correct player's phone, and broadcasts public game state to the TV.
