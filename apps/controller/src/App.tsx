@@ -90,95 +90,137 @@ export function App() {
   const [passTargetPlayerId, setPassTargetPlayerId] = useState("");
 
   useEffect(() => {
-    const webSocket = new WebSocket(getSocketUrl());
-    const initialRoomCode = getInitialRoomCode();
-    const storedSession = readStoredSession();
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+    let activeSocket: WebSocket | null = null;
 
-    setSocket(webSocket);
-
-    webSocket.addEventListener("open", () => {
-      setConnectionStatus("connected");
-
-      if (
-        storedSession &&
-        (!initialRoomCode || storedSession.roomCode === initialRoomCode)
-      ) {
-        setHasJoined(true);
-        setPlayerSession(storedSession);
-        setRoomCode(storedSession.roomCode);
-        setFeedback("Reconnecting to your room...");
-        sendWithSocket(webSocket, {
-          type: "room.reconnect",
-          payload: storedSession
-        });
-      } else {
-        setFeedback("Connected. Enter your player info.");
-      }
-    });
-
-    webSocket.addEventListener("message", (message) => {
-      const event = JSON.parse(String(message.data)) as ServerEvent;
-
-      if (event.type === "player.session") {
-        window.localStorage.setItem(storageKey, JSON.stringify(event.payload));
-        setPlayerSession(event.payload);
-        setRoomCode(event.payload.roomCode);
-        setHasJoined(true);
-        setFeedback("Joined the room.");
+    const scheduleReconnect = () => {
+      if (stopped || reconnectTimeout) {
         return;
       }
 
-      if (event.type === "room.snapshot") {
-        setRoom(event.payload);
-        return;
-      }
-
-      if (event.type === "room.closed") {
-        window.localStorage.removeItem(storageKey);
-        setHasJoined(false);
-        setPlayerSession(null);
-        setRoom(null);
-        setPrivateGame(null);
-        setFeedback("Room closed. Ask the TV for the new room code.");
-        setScreen("name");
-        return;
-      }
-
-      if (event.type === "game.private_state") {
-        setPrivateGame(event.payload);
-        return;
-      }
-
-      if (event.type === "game.selected") {
-        setFeedback("Game module selected.");
-        return;
-      }
-
-      if (event.type === "game.started") {
-        setFeedback("Game started.");
-        return;
-      }
-
-      if (event.type === "game.updated") {
-        setFeedback("Game updated.");
-        return;
-      }
-
-      if (event.type === "error") {
-        setFeedback(event.payload.message);
-      }
-    });
-
-    webSocket.addEventListener("close", () => {
       setConnectionStatus("disconnected");
-      setFeedback("Connection lost. Reopen the room when the server is back.");
-    });
-    webSocket.addEventListener("error", () => {
-      setConnectionStatus("disconnected");
-      setFeedback("Could not reach the lobby server.");
-    });
+      setSocket(null);
+      setFeedback("Connection lost. Reconnecting...");
+      reconnectTimeout = setTimeout(() => {
+        reconnectTimeout = null;
+        connect();
+      }, 1000);
+    };
 
-    return () => webSocket.close();
+    const connect = () => {
+      const webSocket = new WebSocket(getSocketUrl());
+      activeSocket = webSocket;
+      const initialRoomCode = getInitialRoomCode();
+      const storedSession = readStoredSession();
+
+      setSocket(webSocket);
+      setConnectionStatus("connecting");
+
+      webSocket.addEventListener("open", () => {
+        if (activeSocket !== webSocket) {
+          return;
+        }
+
+        setConnectionStatus("connected");
+
+        if (
+          storedSession &&
+          (!initialRoomCode || storedSession.roomCode === initialRoomCode)
+        ) {
+          setHasJoined(true);
+          setPlayerSession(storedSession);
+          setRoomCode(storedSession.roomCode);
+          setFeedback("Reconnecting to your room...");
+          sendWithSocket(webSocket, {
+            type: "room.reconnect",
+            payload: storedSession
+          });
+        } else {
+          setFeedback("Connected. Enter your player info.");
+        }
+      });
+
+      webSocket.addEventListener("message", (message) => {
+        const event = JSON.parse(String(message.data)) as ServerEvent;
+
+        if (event.type === "player.session") {
+          window.localStorage.setItem(storageKey, JSON.stringify(event.payload));
+          setPlayerSession(event.payload);
+          setRoomCode(event.payload.roomCode);
+          setHasJoined(true);
+          setFeedback("Joined the room.");
+          return;
+        }
+
+        if (event.type === "room.snapshot") {
+          setRoom(event.payload);
+          return;
+        }
+
+        if (event.type === "room.closed") {
+          window.localStorage.removeItem(storageKey);
+          setHasJoined(false);
+          setPlayerSession(null);
+          setRoom(null);
+          setPrivateGame(null);
+          setFeedback("Room closed. Ask the TV for the new room code.");
+          setScreen("name");
+          return;
+        }
+
+        if (event.type === "game.private_state") {
+          setPrivateGame(event.payload);
+          return;
+        }
+
+        if (event.type === "game.selected") {
+          setFeedback("Game module selected.");
+          return;
+        }
+
+        if (event.type === "game.started") {
+          setFeedback("Game started.");
+          return;
+        }
+
+        if (event.type === "game.updated") {
+          setFeedback("Game updated.");
+          return;
+        }
+
+        if (event.type === "error") {
+          setFeedback(event.payload.message);
+        }
+      });
+
+      webSocket.addEventListener("close", () => {
+        if (activeSocket === webSocket) {
+          scheduleReconnect();
+        }
+      });
+      webSocket.addEventListener("error", () => {
+        if (activeSocket !== webSocket) {
+          return;
+        }
+
+        setConnectionStatus("disconnected");
+        setFeedback("Could not reach the lobby server. Reconnecting...");
+        webSocket.close();
+      });
+    };
+
+    connect();
+
+    return () => {
+      stopped = true;
+
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+
+      activeSocket?.close();
+    };
   }, []);
 
   const currentHost = room?.players.find((player) => player.isHost);

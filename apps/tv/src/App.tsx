@@ -61,49 +61,106 @@ export function App() {
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
 
   useEffect(() => {
-    const socket = new WebSocket(getSocketUrl());
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let socket: WebSocket | null = null;
+    let stopped = false;
     const initialRoomCode = getInitialRoomCode();
 
-    socket.addEventListener("open", () => {
-      setConnectionStatus("connected");
-      socket.send(
+    const sendRoomRequest = (activeSocket: WebSocket) => {
+      activeSocket.send(
         JSON.stringify(
           initialRoomCode
             ? { type: "room.watch", payload: { roomCode: initialRoomCode } }
             : { type: "room.create", payload: {} }
         )
       );
-    });
+    };
 
-    socket.addEventListener("message", (message) => {
-      const event = JSON.parse(String(message.data)) as ServerEvent;
-
-      if (event.type === "room.created") {
-        setCreatedRoom(event.payload);
+    const scheduleReconnect = () => {
+      if (stopped || reconnectTimeout) {
         return;
       }
 
-      if (event.type === "room.snapshot") {
-        setRoom(event.payload);
-        return;
+      setConnectionStatus("disconnected");
+      reconnectTimeout = setTimeout(() => {
+        reconnectTimeout = null;
+        connect();
+      }, 1000);
+    };
+
+    const connect = () => {
+      setConnectionStatus("connecting");
+      const activeSocket = new WebSocket(getSocketUrl());
+      socket = activeSocket;
+
+      activeSocket.addEventListener("open", () => {
+        if (socket !== activeSocket) {
+          return;
+        }
+
+        setConnectionStatus("connected");
+        sendRoomRequest(activeSocket);
+      });
+
+      activeSocket.addEventListener("message", (message) => {
+        const event = JSON.parse(String(message.data)) as ServerEvent;
+
+        if (event.type === "room.created") {
+          setCreatedRoom(event.payload);
+          return;
+        }
+
+        if (event.type === "room.snapshot") {
+          setRoom(event.payload);
+          return;
+        }
+
+        if (event.type === "room.closed") {
+          setCreatedRoom(null);
+          setRoom(null);
+
+          if (!initialRoomCode && activeSocket.readyState === WebSocket.OPEN) {
+            activeSocket.send(JSON.stringify({ type: "room.create", payload: {} }));
+          }
+
+          return;
+        }
+
+        if (
+          event.type === "error" &&
+          event.payload.code === "ROOM_NOT_FOUND" &&
+          activeSocket.readyState === WebSocket.OPEN
+        ) {
+          activeSocket.send(JSON.stringify({ type: "room.create", payload: {} }));
+        }
+      });
+
+      activeSocket.addEventListener("close", () => {
+        if (socket === activeSocket) {
+          scheduleReconnect();
+        }
+      });
+      activeSocket.addEventListener("error", () => {
+        if (socket !== activeSocket) {
+          return;
+        }
+
+        setConnectionStatus("disconnected");
+        activeSocket.close();
+      });
+    };
+
+    connect();
+
+    return () => {
+      stopped = true;
+
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
       }
 
-      if (event.type === "room.closed") {
-        setCreatedRoom(null);
-        setRoom(null);
-        socket.send(JSON.stringify({ type: "room.create", payload: {} }));
-        return;
-      }
-
-      if (event.type === "error" && event.payload.code === "ROOM_NOT_FOUND") {
-        socket.send(JSON.stringify({ type: "room.create", payload: {} }));
-      }
-    });
-
-    socket.addEventListener("close", () => setConnectionStatus("disconnected"));
-    socket.addEventListener("error", () => setConnectionStatus("disconnected"));
-
-    return () => socket.close();
+      socket?.close();
+    };
   }, []);
 
   const displayRoom = useMemo(
