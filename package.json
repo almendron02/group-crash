@@ -5,12 +5,16 @@
   "description": "Web-first second-screen multiplayer game platform for TV and phone controllers.",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
+    "build:controller": "pnpm --filter @group-crash/controller build",
+    "build:server": "pnpm --filter @group-crash/server build",
+    "build:tv": "pnpm --filter @group-crash/tv build",
     "build": "pnpm -r build",
     "check": "pnpm -r check",
     "dev": "pnpm --filter @group-crash/tv dev",
     "dev:tv": "pnpm --filter @group-crash/tv dev",
     "dev:controller": "pnpm --filter @group-crash/controller dev",
     "dev:server": "pnpm --filter @group-crash/server dev",
+    "start:server": "pnpm --filter @group-crash/server start",
     "test:integration": "pnpm --filter @group-crash/server test:integration"
   },
   "devDependencies": {

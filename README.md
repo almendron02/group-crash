@@ -82,6 +82,7 @@ group-crash/
 |   +-- architecture.md
 |   +-- protocol.md
 |   +-- acceptance-tests.md
+|   +-- deployment.md
 +-- apps/
 |   +-- tv/
 |   +-- controller/
@@ -103,8 +104,11 @@ group-crash/
 4. Harden reconnect grace, room expiration, and tests.
 5. Add modular game registry shell.
 6. Build playable game modules.
-7. Package the TV client for Google TV after the browser version works reliably.
+7. Deploy a public browser test build.
+8. Package the TV client for Google TV after the browser version works reliably.
 
 ## Current Status
 
-Milestone 6 is in progress. The TV and phone controller connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, host transfer, reconnect grace, room expiration, host-only game selection, and playable `Imposter Crash` and `Sketch Crash` loops. The server keeps secret roles, prompts, drawing strokes, guesses, and game results authoritative, sends private state only to the correct player's phone, and broadcasts public game state to the TV.
+Milestone 7 is next. The TV and phone controller connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, host transfer, reconnect grace, room expiration, host-only game selection, and playable `Imposter Crash` and `Sketch Crash` loops. The server keeps secret roles, prompts, drawing strokes, guesses, and game results authoritative, sends private state only to the correct player's phone, and broadcasts public game state to the TV.
+
+See [docs/deployment.md](docs/deployment.md) for the public test deployment plan.

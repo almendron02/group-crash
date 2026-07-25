@@ -56,6 +56,7 @@ import {
   type WatchRoomPayload
 } from "@group-crash/protocol";
 
+const host = process.env.HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? 3001);
 const controllerOrigin = process.env.CONTROLLER_ORIGIN ?? "http://127.0.0.1:5174";
 const roomTtlMs = Number(process.env.ROOM_TTL_MS ?? 2 * 60 * 60 * 1000);
@@ -155,8 +156,8 @@ server.on("upgrade", (request, socket) => {
   socket.on("error", () => handlePeerClose(peer));
 });
 
-server.listen(port, () => {
-  console.log(`Group Crash server listening on http://127.0.0.1:${port}`);
+server.listen(port, host, () => {
+  console.log(`Group Crash server listening on http://${host}:${port}`);
 });
 
 function isWebSocketUpgrade(request: IncomingMessage) {
