@@ -52,9 +52,16 @@ function getInitialRoomCode() {
 
 function getSocketUrl() {
   const configuredUrl = import.meta.env.VITE_GROUP_CRASH_WS_URL as string | undefined;
+  const serverUrl = import.meta.env.VITE_GROUP_CRASH_SERVER_URL as string | undefined;
 
   if (configuredUrl) {
     return configuredUrl;
+  }
+
+  if (serverUrl) {
+    const url = new URL(serverUrl);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.toString().replace(/\/$/, "");
   }
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";

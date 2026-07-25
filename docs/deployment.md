@@ -20,6 +20,23 @@ Use Render for the first public test because it can host both:
 
 Public clients must connect with `wss://`, not `ws://`.
 
+## Fastest Path: Render Blueprint
+
+This repo includes `render.yaml` at the repository root. In Render, create a new
+Blueprint from the GitHub repository and Render can create all three services:
+
+- `group-crash-server`
+- `group-crash-controller`
+- `group-crash-tv`
+
+The Blueprint wires the public service URLs automatically with
+`RENDER_EXTERNAL_URL`. The TV and controller apps accept
+`VITE_GROUP_CRASH_SERVER_URL` and convert it to the correct `wss://` WebSocket
+URL at runtime.
+
+Use the manual settings below only if you prefer creating each service one at a
+time.
+
 ## Service 1: Multiplayer Server
 
 Create a Render **Web Service**.
@@ -79,6 +96,8 @@ Environment variables:
 ```text
 NODE_VERSION=22
 VITE_GROUP_CRASH_WS_URL=wss://YOUR-SERVER.onrender.com
+# Or, for Render Blueprints:
+VITE_GROUP_CRASH_SERVER_URL=https://YOUR-SERVER.onrender.com
 ```
 
 After deploy, the controller URL should look like:
@@ -107,6 +126,8 @@ Environment variables:
 ```text
 NODE_VERSION=22
 VITE_GROUP_CRASH_WS_URL=wss://YOUR-SERVER.onrender.com
+# Or, for Render Blueprints:
+VITE_GROUP_CRASH_SERVER_URL=https://YOUR-SERVER.onrender.com
 VITE_GROUP_CRASH_CONTROLLER_URL=https://YOUR-CONTROLLER-SITE.onrender.com
 ```
 

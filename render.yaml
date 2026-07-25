@@ -1,0 +1,64 @@
+services:
+  - type: web
+    name: group-crash-server
+    runtime: node
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @group-crash/server build
+    startCommand: pnpm --filter @group-crash/server start
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: HOST
+        value: 0.0.0.0
+      - key: CONTROLLER_ORIGIN
+        fromService:
+          type: web
+          name: group-crash-controller
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: ROOM_TTL_MS
+        value: "7200000"
+      - key: RECONNECT_GRACE_MS
+        value: "30000"
+      - key: CLEANUP_INTERVAL_MS
+        value: "15000"
+      - key: MESSAGE_COOLDOWN_MS
+        value: "1200"
+      - key: MAX_MESSAGE_BYTES
+        value: "4096"
+
+  - type: web
+    name: group-crash-controller
+    runtime: static
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @group-crash/controller build
+    staticPublishPath: apps/controller/dist
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_GROUP_CRASH_SERVER_URL
+        fromService:
+          type: web
+          name: group-crash-server
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: group-crash-tv
+    runtime: static
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @group-crash/tv build
+    staticPublishPath: apps/tv/dist
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_GROUP_CRASH_SERVER_URL
+        fromService:
+          type: web
+          name: group-crash-server
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: VITE_GROUP_CRASH_CONTROLLER_URL
+        fromService:
+          type: web
+          name: group-crash-controller
+          envVarKey: RENDER_EXTERNAL_URL
