@@ -37,6 +37,15 @@ URL at runtime.
 Use the manual settings below only if you prefer creating each service one at a
 time.
 
+The Blueprint does not create a paid durable room store. For public testing, the
+app works without one. For restart-safe rooms, add an external Redis-compatible
+store and set this on `group-crash-server`:
+
+```text
+ROOM_STORE_REDIS_URL=redis://default:password@host:6379
+ROOM_STORE_KEY_PREFIX=group-crash
+```
+
 ## Custom Domains
 
 If you want the public TV app to use the Forma domain, use:
@@ -106,6 +115,9 @@ RECONNECT_GRACE_MS=30000
 CLEANUP_INTERVAL_MS=15000
 MESSAGE_COOLDOWN_MS=1200
 MAX_MESSAGE_BYTES=4096
+# Optional durable room store:
+ROOM_STORE_REDIS_URL=redis://default:password@host:6379
+ROOM_STORE_KEY_PREFIX=group-crash
 ```
 
 Render provides `PORT` automatically. Do not hard-code it in the Render service.

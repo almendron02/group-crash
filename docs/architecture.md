@@ -24,10 +24,9 @@ Recommended MVP stack:
 - Vite for frontend builds
 - Node.js for the server
 - WebSocket for real-time communication
-- Zod for future runtime validation
 - pnpm workspaces for the monorepo
 
-Database, Redis, auth, formal schema validation, and Android TV packaging come later.
+Auth, formal schema validation, and Android TV packaging come later.
 
 ## Initial Monorepo Shape
 
@@ -61,6 +60,7 @@ Responsibilities:
 - Show quick messages
 - Show host status and votes
 - Show available game modules, selected game shell, or empty game library
+- Store its current room code locally so it can re-watch the same room after reconnect
 - Support keyboard/D-pad style focus
 
 The TV app should not contain authoritative lobby rules.
@@ -79,6 +79,7 @@ Responsibilities:
 - Show host controls if current player is host
 - Select registered game modules if current player is host
 - Reconnect using a private token
+- Use host controls for room lock, capacity, mute, and kick actions
 
 The phone app sends player intentions to the server.
 
@@ -95,12 +96,25 @@ Responsibilities:
 - Start and resolve host votes
 - Handle reconnect tokens
 - Rate-limit messages
+- Enforce room lock, capacity, mute, and kick controls
 - Register game manifests
 - Validate host-only game selection
 - Broadcast public snapshots
 - Send private player state only to the correct player
+- Persist room snapshots and reconnect tokens when a room store is configured
 
 The server is the only authority for host status and room state.
+
+## Persistence Boundary
+
+The server can run without persistence for simple public tests. When
+`ROOM_STORE_FILE_PATH` or `ROOM_STORE_REDIS_URL` is configured, room snapshots
+and reconnect tokens are saved after accepted state changes.
+
+After a server restart, restored players are marked disconnected and can
+reconnect with their existing phone tokens during the configured grace window.
+For public deployments, use a Redis-compatible external store rather than the
+local file store.
 
 ## Public And Private State
 

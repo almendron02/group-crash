@@ -25,6 +25,7 @@ export interface PublicPlayer {
   avatar: ChessAvatar;
   connectionStatus: PlayerConnectionStatus;
   isHost: boolean;
+  isMuted: boolean;
   wantsHost: boolean;
   joinedAt: number;
 }
@@ -60,6 +61,7 @@ export interface RoomSnapshot {
   activeHostVote: HostVote | null;
   availableGames: GameManifest[];
   activeGame: PublicGameView | null;
+  isLocked: boolean;
   playerCount: number;
   maxPlayers: number;
   gamesAvailable: boolean;
@@ -158,6 +160,9 @@ export type ClientEvent =
   | { type: "room.join"; payload: JoinRoomPayload }
   | { type: "room.reconnect"; payload: ReconnectPayload }
   | { type: "room.leave"; payload: LeaveRoomPayload }
+  | { type: "room.settings.update"; payload: UpdateRoomSettingsPayload }
+  | { type: "player.kick"; payload: KickPlayerPayload }
+  | { type: "player.mute"; payload: MutePlayerPayload }
   | { type: "message.send"; payload: SendMessagePayload }
   | { type: "host.request"; payload: HostRequestPayload }
   | { type: "host.vote.cast"; payload: CastHostVotePayload }
@@ -203,6 +208,26 @@ export interface SendMessagePayload {
   roomCode: string;
   playerId: string;
   text: string;
+}
+
+export interface UpdateRoomSettingsPayload {
+  roomCode: string;
+  hostPlayerId: string;
+  isLocked?: boolean;
+  maxPlayers?: number;
+}
+
+export interface KickPlayerPayload {
+  roomCode: string;
+  hostPlayerId: string;
+  targetPlayerId: string;
+}
+
+export interface MutePlayerPayload {
+  roomCode: string;
+  hostPlayerId: string;
+  targetPlayerId: string;
+  isMuted: boolean;
 }
 
 export interface HostRequestPayload {
@@ -271,6 +296,9 @@ export type ServerEvent =
   | { type: "player.joined"; payload: PublicPlayer }
   | { type: "player.disconnected"; payload: PlayerStatusPayload }
   | { type: "player.reconnected"; payload: PlayerStatusPayload }
+  | { type: "player.kicked"; payload: PlayerKickedPayload }
+  | { type: "player.muted"; payload: PlayerMutedPayload }
+  | { type: "room.settings.updated"; payload: RoomSettingsUpdatedPayload }
   | { type: "message.received"; payload: LobbyMessage }
   | { type: "host.changed"; payload: HostChangedPayload }
   | { type: "host.vote.started"; payload: HostVote }
@@ -303,6 +331,26 @@ export interface PlayerSessionPayload {
   roomCode: string;
   playerId: string;
   reconnectToken: string;
+}
+
+export interface RoomSettingsUpdatedPayload {
+  roomCode: string;
+  isLocked: boolean;
+  maxPlayers: number;
+  updatedByPlayerId: string;
+}
+
+export interface PlayerKickedPayload {
+  roomCode: string;
+  targetPlayerId: string;
+  kickedByPlayerId: string;
+}
+
+export interface PlayerMutedPayload {
+  roomCode: string;
+  targetPlayerId: string;
+  mutedByPlayerId: string;
+  isMuted: boolean;
 }
 
 export interface HostChangedPayload {
@@ -344,9 +392,11 @@ export interface ServerErrorPayload {
   code:
     | "ROOM_NOT_FOUND"
     | "ROOM_FULL"
+    | "ROOM_LOCKED"
     | "INVALID_NAME"
     | "INVALID_AVATAR"
     | "MESSAGE_TOO_LONG"
+    | "PLAYER_MUTED"
     | "RATE_LIMITED"
     | "NOT_HOST"
     | "VOTE_NOT_FOUND"

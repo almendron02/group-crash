@@ -64,8 +64,23 @@ Only the current host can:
 - Select a game
 - Start a game once games exist
 - Pass host voluntarily
+- Lock or unlock the room
+- Change room capacity from 2 to 8 players
+- Mute or unmute player shouts
+- Kick a player from the room
 
 For the playable-game milestone, the host can select registered modules. Playable modules can be started when the room satisfies their player limits.
+
+## Room Controls
+
+- Locked rooms reject new joins.
+- Existing players can continue playing in a locked room.
+- Room capacity cannot be set lower than the current player count.
+- Room capacity cannot exceed 8 players.
+- Muted players stay in the room but cannot send lobby shouts.
+- Kicked players are removed from the room and lose their reconnect token.
+- If a kicked player was part of an active game, the active game returns to the lobby.
+- The host cannot kick or mute themselves.
 
 ## Game Registry
 

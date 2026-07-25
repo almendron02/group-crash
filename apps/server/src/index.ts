@@ -24,12 +24,14 @@ import {
   createEmptyRoomSnapshot,
   joinLocalPlayer,
   markLocalPlayerDisconnected,
+  muteLocalPlayer,
   passLocalHost,
   reconnectLocalPlayer,
   removeLocalPlayer,
   requestLocalHost,
   selectLocalGame,
   sendLocalMessage,
+  updateLocalRoomSettings,
   type AdvanceGamePayload,
   type CastGameVotePayload,
   type CastHostVotePayload,
@@ -37,9 +39,11 @@ import {
   type ClientEvent,
   type HostRequestPayload,
   type HostVote,
+  type KickPlayerPayload,
   type PrivateGameView,
   type JoinRoomPayload,
   type LeaveRoomPayload,
+  type MutePlayerPayload,
   type PassHostPayload,
   type PlayerSessionPayload,
   type PublicPlayer,
@@ -53,8 +57,13 @@ import {
   type SubmitSketchGuessPayload,
   type ServerEvent,
   type StartGamePayload,
+  type UpdateRoomSettingsPayload,
   type WatchRoomPayload
 } from "@group-crash/protocol";
+import {
+  createRoomStore,
+  type StoredRoomRecord
+} from "./persistence";
 
 const host = process.env.HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? 3001);
@@ -64,6 +73,9 @@ const reconnectGraceMs = Number(process.env.RECONNECT_GRACE_MS ?? 30_000);
 const cleanupIntervalMs = Number(process.env.CLEANUP_INTERVAL_MS ?? 15_000);
 const messageCooldownMs = Number(process.env.MESSAGE_COOLDOWN_MS ?? 1200);
 const maxMessageBytes = Number(process.env.MAX_MESSAGE_BYTES ?? 4096);
+const roomStoreFilePath = process.env.ROOM_STORE_FILE_PATH;
+const roomStoreRedisUrl = process.env.ROOM_STORE_REDIS_URL;
+const roomStoreKeyPrefix = process.env.ROOM_STORE_KEY_PREFIX ?? "group-crash";
 const roomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const gameRegistry = [demoCrashManifest, sketchCrashManifest, imposterCrashManifest];
 
@@ -99,6 +111,11 @@ type ActiveGameRecord =
 
 const roomsByCode = new Map<string, RoomRecord>();
 const peers = new Set<SocketPeer>();
+const roomStore = createRoomStore<ActiveGameRecord>({
+  filePath: roomStoreFilePath,
+  keyPrefix: roomStoreKeyPrefix,
+  redisUrl: roomStoreRedisUrl
+});
 
 const cleanupTimer = setInterval(expireInactiveRooms, cleanupIntervalMs);
 cleanupTimer.unref?.();
@@ -155,6 +172,8 @@ server.on("upgrade", (request, socket) => {
   socket.on("close", () => handlePeerClose(peer));
   socket.on("error", () => handlePeerClose(peer));
 });
+
+await restorePersistedRooms();
 
 server.listen(port, host, () => {
   console.log(`Group Crash server listening on http://${host}:${port}`);
@@ -222,6 +241,15 @@ function handleClientMessage(peer: SocketPeer, rawMessage: string) {
     case "room.leave":
       handleLeaveRoom(peer, event.payload);
       break;
+    case "room.settings.update":
+      handleUpdateRoomSettings(peer, event.payload);
+      break;
+    case "player.kick":
+      handleKickPlayer(peer, event.payload);
+      break;
+    case "player.mute":
+      handleMutePlayer(peer, event.payload);
+      break;
     case "message.send":
       handleSendMessage(peer, event.payload);
       break;
@@ -271,6 +299,7 @@ function handleCreateRoom(peer: SocketPeer) {
   };
 
   roomsByCode.set(roomCode, record);
+  persistRoom(record);
   attachDisplay(peer, record);
 
   const payload: RoomCreatedPayload = {
@@ -333,7 +362,15 @@ function handleJoinRoom(peer: SocketPeer, payload: JoinRoomPayload) {
   });
 
   if (result.status === "blocked") {
-    sendError(peer, result.notice === "Room is full." ? "ROOM_FULL" : "UNKNOWN", result.notice);
+    sendError(
+      peer,
+      result.notice === "Room is full."
+        ? "ROOM_FULL"
+        : result.notice === "Room is locked."
+          ? "ROOM_LOCKED"
+          : "UNKNOWN",
+      result.notice
+    );
     return;
   }
 
@@ -432,6 +469,141 @@ function handleLeaveRoom(peer: SocketPeer, payload: LeaveRoomPayload) {
   broadcastSnapshot(record);
 }
 
+function handleUpdateRoomSettings(
+  peer: SocketPeer,
+  payload: UpdateRoomSettingsPayload
+) {
+  const record = assertPlayerAction(peer, payload.roomCode, payload.hostPlayerId);
+
+  if (!record) {
+    return;
+  }
+
+  const result = updateLocalRoomSettings(record.snapshot, payload.hostPlayerId, {
+    isLocked: payload.isLocked,
+    maxPlayers: payload.maxPlayers
+  });
+
+  if (result.status === "blocked") {
+    sendError(peer, record.snapshot.hostPlayerId === payload.hostPlayerId ? "NOT_ELIGIBLE" : "NOT_HOST", result.notice);
+    return;
+  }
+
+  record.snapshot = result.room;
+  broadcast(record, {
+    type: "room.settings.updated",
+    payload: {
+      roomCode: record.snapshot.roomCode,
+      isLocked: record.snapshot.isLocked,
+      maxPlayers: record.snapshot.maxPlayers,
+      updatedByPlayerId: payload.hostPlayerId
+    }
+  });
+  broadcastSnapshot(record);
+}
+
+function handleKickPlayer(peer: SocketPeer, payload: KickPlayerPayload) {
+  const record = assertPlayerAction(peer, payload.roomCode, payload.hostPlayerId);
+
+  if (!record) {
+    return;
+  }
+
+  if (record.snapshot.hostPlayerId !== payload.hostPlayerId) {
+    sendError(peer, "NOT_HOST", "Only the current host can kick players.");
+    return;
+  }
+
+  if (payload.targetPlayerId === payload.hostPlayerId) {
+    sendError(peer, "NOT_ELIGIBLE", "The host cannot kick themselves.");
+    return;
+  }
+
+  const target = record.snapshot.players.find(
+    (player) => player.id === payload.targetPlayerId
+  );
+
+  if (!target) {
+    sendError(peer, "NOT_ELIGIBLE", "Player is not in the room.");
+    return;
+  }
+
+  const targetPeers = [...(record.playerPeers.get(payload.targetPlayerId) ?? [])];
+  const playerWasInActiveGame = Boolean(
+    record.activeGame?.state.playerIds.includes(payload.targetPlayerId)
+  );
+  const result = removeLocalPlayer(record.snapshot, payload.targetPlayerId);
+
+  if (result.status === "blocked") {
+    sendError(peer, "NOT_ELIGIBLE", result.notice);
+    return;
+  }
+
+  record.snapshot = result.room;
+  clearDisconnectTimer(record, payload.targetPlayerId);
+  record.reconnectTokensByPlayerId.delete(payload.targetPlayerId);
+
+  for (const targetPeer of targetPeers) {
+    send(targetPeer, {
+      type: "player.kicked",
+      payload: {
+        kickedByPlayerId: payload.hostPlayerId,
+        roomCode: record.snapshot.roomCode,
+        targetPlayerId: payload.targetPlayerId
+      }
+    });
+    detachPeerFromRoom(targetPeer);
+  }
+
+  broadcast(record, {
+    type: "player.kicked",
+    payload: {
+      kickedByPlayerId: payload.hostPlayerId,
+      roomCode: record.snapshot.roomCode,
+      targetPlayerId: payload.targetPlayerId
+    }
+  });
+
+  if (playerWasInActiveGame) {
+    clearActiveGame(record);
+  }
+
+  broadcastSnapshot(record);
+  broadcastPrivateGameStates(record);
+}
+
+function handleMutePlayer(peer: SocketPeer, payload: MutePlayerPayload) {
+  const record = assertPlayerAction(peer, payload.roomCode, payload.hostPlayerId);
+
+  if (!record) {
+    return;
+  }
+
+  const result = muteLocalPlayer(
+    record.snapshot,
+    payload.hostPlayerId,
+    payload.targetPlayerId,
+    payload.isMuted
+  );
+
+  if (result.status === "blocked") {
+    sendError(peer, record.snapshot.hostPlayerId === payload.hostPlayerId ? "NOT_ELIGIBLE" : "NOT_HOST", result.notice);
+    return;
+  }
+
+  record.snapshot = result.room;
+  broadcast(record, {
+    type: "player.muted",
+    payload: {
+      isMuted: payload.isMuted,
+      mutedByPlayerId: payload.hostPlayerId,
+      roomCode: record.snapshot.roomCode,
+      targetPlayerId: payload.targetPlayerId
+    }
+  });
+  broadcastSnapshot(record);
+}
+
 function handleSendMessage(peer: SocketPeer, payload: SendMessagePayload) {
   const record = assertPlayerAction(peer, payload.roomCode, payload.playerId);
 
@@ -452,7 +624,11 @@ function handleSendMessage(peer: SocketPeer, payload: SendMessagePayload) {
   if (result.status === "blocked") {
     sendError(
       peer,
-      result.notice === "Message is too long." ? "MESSAGE_TOO_LONG" : "UNKNOWN",
+      result.notice === "Message is too long."
+        ? "MESSAGE_TOO_LONG"
+        : result.notice === "You are muted in this room."
+          ? "PLAYER_MUTED"
+          : "UNKNOWN",
       result.notice
     );
     return;
@@ -1089,6 +1265,7 @@ function findRoom(roomCode: string) {
 
 function touchRoom(record: RoomRecord) {
   record.expiresAt = Date.now() + roomTtlMs;
+  persistRoom(record);
 }
 
 function expireInactiveRooms() {
@@ -1132,6 +1309,7 @@ function expireRoom(record: RoomRecord, reason: "expired" | "server_shutdown") {
   record.reconnectTokensByPlayerId.clear();
   record.lastMessageAtByPlayerId.clear();
   roomsByCode.delete(roomCode);
+  deletePersistedRoom(roomCode);
 }
 
 function broadcast(record: RoomRecord, event: ServerEvent) {
@@ -1147,6 +1325,7 @@ function broadcast(record: RoomRecord, event: ServerEvent) {
 }
 
 function broadcastSnapshot(record: RoomRecord) {
+  persistRoom(record);
   broadcast(record, { type: "room.snapshot", payload: record.snapshot });
 }
 
@@ -1232,6 +1411,89 @@ function sendError(
   send(peer, { type: "error", payload: { code, message } });
 }
 
+async function restorePersistedRooms() {
+  if (!roomStore) {
+    return;
+  }
+
+  try {
+    const storedRooms = await roomStore.loadAll();
+
+    for (const storedRoom of storedRooms) {
+      if (Date.now() > storedRoom.expiresAt) {
+        await roomStore.delete(storedRoom.snapshot.roomCode);
+        continue;
+      }
+
+      const record = createRoomRecordFromStored(storedRoom);
+      roomsByCode.set(record.snapshot.roomCode, record);
+
+      for (const player of record.snapshot.players) {
+        schedulePlayerDisconnect(record, player.id);
+      }
+    }
+
+    if (storedRooms.length > 0) {
+      console.log(`Restored ${roomsByCode.size} persisted Group Crash room(s).`);
+    }
+  } catch (error) {
+    console.error("Could not restore persisted rooms.", error);
+  }
+}
+
+function createRoomRecordFromStored(
+  storedRoom: StoredRoomRecord<ActiveGameRecord>
+): RoomRecord {
+  const snapshot: RoomSnapshot = {
+    ...storedRoom.snapshot,
+    players: storedRoom.snapshot.players.map((player) => ({
+      ...player,
+      connectionStatus: "disconnected"
+    }))
+  };
+  const record: RoomRecord = {
+    activeGame: storedRoom.activeGame,
+    disconnectTimersByPlayerId: new Map(),
+    displayPeers: new Set(),
+    expiresAt: storedRoom.expiresAt,
+    lastMessageAtByPlayerId: new Map(storedRoom.lastMessageAtEntries),
+    playerPeers: new Map(),
+    reconnectTokensByPlayerId: new Map(storedRoom.reconnectTokenEntries),
+    snapshot
+  };
+
+  syncActiveGameSnapshot(record);
+  return record;
+}
+
+function persistRoom(record: RoomRecord) {
+  if (!roomStore) {
+    return;
+  }
+
+  const storedRoom: StoredRoomRecord<ActiveGameRecord> = {
+    activeGame: record.activeGame,
+    expiresAt: record.expiresAt,
+    lastMessageAtEntries: [...record.lastMessageAtByPlayerId.entries()],
+    reconnectTokenEntries: [...record.reconnectTokensByPlayerId.entries()],
+    snapshot: record.snapshot
+  };
+
+  void roomStore.save(storedRoom).catch((error) => {
+    console.error("Could not persist room.", error);
+  });
+}
+
+function deletePersistedRoom(roomCode: string) {
+  if (!roomStore) {
+    return;
+  }
+
+  void roomStore.delete(roomCode).catch((error) => {
+    console.error("Could not delete persisted room.", error);
+  });
+}
+
 function parseClientEvent(rawMessage: string): ClientEvent | null {
   try {
     const value = JSON.parse(rawMessage) as unknown;
@@ -1289,6 +1551,56 @@ function parseClientEvent(rawMessage: string): ClientEvent | null {
           ? {
               type: "room.leave",
               payload: { playerId: payload.playerId, roomCode: normalizeRoomCode(payload.roomCode) }
+            }
+          : null;
+      case "room.settings.update":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.hostPlayerId) &&
+          (payload.maxPlayers === undefined || isRoomCapacity(payload.maxPlayers)) &&
+          (payload.isLocked === undefined || typeof payload.isLocked === "boolean")
+          ? {
+              type: "room.settings.update",
+              payload: {
+                hostPlayerId: payload.hostPlayerId,
+                isLocked:
+                  typeof payload.isLocked === "boolean" ? payload.isLocked : undefined,
+                maxPlayers:
+                  typeof payload.maxPlayers === "number"
+                    ? Math.trunc(payload.maxPlayers)
+                    : undefined,
+                roomCode: normalizeRoomCode(payload.roomCode)
+              }
+            }
+          : null;
+      case "player.kick":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.hostPlayerId) &&
+          isNonEmptyString(payload.targetPlayerId)
+          ? {
+              type: "player.kick",
+              payload: {
+                hostPlayerId: payload.hostPlayerId,
+                roomCode: normalizeRoomCode(payload.roomCode),
+                targetPlayerId: payload.targetPlayerId
+              }
+            }
+          : null;
+      case "player.mute":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.hostPlayerId) &&
+          isNonEmptyString(payload.targetPlayerId) &&
+          typeof payload.isMuted === "boolean"
+          ? {
+              type: "player.mute",
+              payload: {
+                hostPlayerId: payload.hostPlayerId,
+                isMuted: payload.isMuted,
+                roomCode: normalizeRoomCode(payload.roomCode),
+                targetPlayerId: payload.targetPlayerId
+              }
             }
           : null;
       case "message.send":
@@ -1449,6 +1761,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isRoomCode(value: unknown): value is string {
   return typeof value === "string" && /^[A-Z0-9]{4}$/.test(value.trim().toUpperCase());
+}
+
+function isRoomCapacity(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 2 && value <= 8;
 }
 
 function normalizeRoomCode(value: string) {

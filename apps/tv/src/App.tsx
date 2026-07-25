@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Gamepad2,
+  Lock,
   MessageCircle,
   Palette,
   ShieldAlert,
   Trophy,
+  Unlock,
   UsersRound,
   Vote
 } from "lucide-react";
@@ -29,13 +31,31 @@ import {
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
-function getInitialRoomCode() {
+const tvRoomStorageKey = "group-crash-tv-room-code";
+
+function getQueryRoomCode() {
   if (typeof window === "undefined") {
     return null;
   }
 
   const roomCode = new URLSearchParams(window.location.search).get("room");
   return roomCode?.trim().toUpperCase() || null;
+}
+
+function readStoredRoomCode() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.localStorage.getItem(tvRoomStorageKey)?.trim().toUpperCase() || null;
+}
+
+function storeRoomCode(roomCode: string) {
+  window.localStorage.setItem(tvRoomStorageKey, roomCode);
+}
+
+function forgetStoredRoomCode() {
+  window.localStorage.removeItem(tvRoomStorageKey);
 }
 
 function getSocketUrl() {
@@ -72,13 +92,14 @@ export function App() {
     let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
     let socket: WebSocket | null = null;
     let stopped = false;
-    const initialRoomCode = getInitialRoomCode();
+    const queryRoomCode = getQueryRoomCode();
+    let requestedRoomCode = queryRoomCode ?? readStoredRoomCode();
 
     const sendRoomRequest = (activeSocket: WebSocket) => {
       activeSocket.send(
         JSON.stringify(
-          initialRoomCode
-            ? { type: "room.watch", payload: { roomCode: initialRoomCode } }
+          requestedRoomCode
+            ? { type: "room.watch", payload: { roomCode: requestedRoomCode } }
             : { type: "room.create", payload: {} }
         )
       );
@@ -114,20 +135,27 @@ export function App() {
         const event = JSON.parse(String(message.data)) as ServerEvent;
 
         if (event.type === "room.created") {
+          requestedRoomCode = event.payload.roomCode;
+          storeRoomCode(event.payload.roomCode);
           setCreatedRoom(event.payload);
           return;
         }
 
         if (event.type === "room.snapshot") {
+          requestedRoomCode = event.payload.roomCode;
+          storeRoomCode(event.payload.roomCode);
           setRoom(event.payload);
           return;
         }
 
         if (event.type === "room.closed") {
+          forgetStoredRoomCode();
           setCreatedRoom(null);
           setRoom(null);
+          requestedRoomCode = queryRoomCode;
 
-          if (!initialRoomCode && activeSocket.readyState === WebSocket.OPEN) {
+          if (!queryRoomCode && activeSocket.readyState === WebSocket.OPEN) {
+            requestedRoomCode = null;
             activeSocket.send(JSON.stringify({ type: "room.create", payload: {} }));
           }
 
@@ -139,6 +167,14 @@ export function App() {
           event.payload.code === "ROOM_NOT_FOUND" &&
           activeSocket.readyState === WebSocket.OPEN
         ) {
+          forgetStoredRoomCode();
+          requestedRoomCode = queryRoomCode;
+
+          if (queryRoomCode) {
+            return;
+          }
+
+          requestedRoomCode = null;
           activeSocket.send(JSON.stringify({ type: "room.create", payload: {} }));
         }
       });
@@ -256,6 +292,12 @@ export function App() {
             <div>
               <Badge tone="yellow" icon={<UsersRound aria-hidden="true" />}>
                 {displayRoom.playerCount}/{displayRoom.maxPlayers} joined
+              </Badge>
+              <Badge
+                tone="cream"
+                icon={displayRoom.isLocked ? <Lock aria-hidden="true" /> : <Unlock aria-hidden="true" />}
+              >
+                {displayRoom.isLocked ? "Locked room" : "Open room"}
               </Badge>
               <h1>Crash Crew</h1>
             </div>

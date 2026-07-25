@@ -18,6 +18,7 @@ export interface PublicPlayer {
   avatar: ChessAvatar;
   connectionStatus: PlayerConnectionStatus;
   isHost: boolean;
+  isMuted: boolean;
   wantsHost: boolean;
   joinedAt: number;
 }
@@ -130,6 +131,7 @@ export interface RoomSnapshot {
   activeHostVote: HostVote | null;
   activeGame: PublicGameView | null;
   availableGames: GameManifest[];
+  isLocked: boolean;
   playerCount: number;
   maxPlayers: number;
   gamesAvailable: boolean;
@@ -160,6 +162,26 @@ export interface ReconnectPayload {
 export interface LeaveRoomPayload {
   roomCode: string;
   playerId: string;
+}
+
+export interface UpdateRoomSettingsPayload {
+  roomCode: string;
+  hostPlayerId: string;
+  isLocked?: boolean;
+  maxPlayers?: number;
+}
+
+export interface KickPlayerPayload {
+  roomCode: string;
+  hostPlayerId: string;
+  targetPlayerId: string;
+}
+
+export interface MutePlayerPayload {
+  roomCode: string;
+  hostPlayerId: string;
+  isMuted: boolean;
+  targetPlayerId: string;
 }
 
 export interface SendMessagePayload {
@@ -227,6 +249,9 @@ export type ClientEvent =
   | { type: "room.join"; payload: JoinRoomPayload }
   | { type: "room.reconnect"; payload: ReconnectPayload }
   | { type: "room.leave"; payload: LeaveRoomPayload }
+  | { type: "room.settings.update"; payload: UpdateRoomSettingsPayload }
+  | { type: "player.kick"; payload: KickPlayerPayload }
+  | { type: "player.mute"; payload: MutePlayerPayload }
   | { type: "message.send"; payload: SendMessagePayload }
   | { type: "host.request"; payload: HostRequestPayload }
   | { type: "host.vote.cast"; payload: CastHostVotePayload }
@@ -248,6 +273,26 @@ export interface RoomCreatedPayload {
 export interface PlayerStatusPayload {
   roomCode: string;
   playerId: string;
+}
+
+export interface RoomSettingsUpdatedPayload {
+  roomCode: string;
+  isLocked: boolean;
+  maxPlayers: number;
+  updatedByPlayerId: string;
+}
+
+export interface PlayerKickedPayload {
+  roomCode: string;
+  targetPlayerId: string;
+  kickedByPlayerId: string;
+}
+
+export interface PlayerMutedPayload {
+  roomCode: string;
+  targetPlayerId: string;
+  mutedByPlayerId: string;
+  isMuted: boolean;
 }
 
 export interface PlayerSessionPayload {
@@ -295,9 +340,11 @@ export interface ServerErrorPayload {
   code:
     | "ROOM_NOT_FOUND"
     | "ROOM_FULL"
+    | "ROOM_LOCKED"
     | "INVALID_NAME"
     | "INVALID_AVATAR"
     | "MESSAGE_TOO_LONG"
+    | "PLAYER_MUTED"
     | "RATE_LIMITED"
     | "NOT_HOST"
     | "VOTE_NOT_FOUND"
@@ -317,6 +364,9 @@ export type ServerEvent =
   | { type: "player.joined"; payload: PublicPlayer }
   | { type: "player.disconnected"; payload: PlayerStatusPayload }
   | { type: "player.reconnected"; payload: PlayerStatusPayload }
+  | { type: "player.kicked"; payload: PlayerKickedPayload }
+  | { type: "player.muted"; payload: PlayerMutedPayload }
+  | { type: "room.settings.updated"; payload: RoomSettingsUpdatedPayload }
   | { type: "message.received"; payload: LobbyMessage }
   | { type: "host.changed"; payload: HostChangedPayload }
   | { type: "host.vote.started"; payload: HostVote }
@@ -383,6 +433,7 @@ export const mockRoomSnapshot: RoomSnapshot = {
       avatar: "king",
       connectionStatus: "connected",
       isHost: true,
+      isMuted: false,
       wantsHost: false,
       joinedAt: 1
     },
@@ -392,6 +443,7 @@ export const mockRoomSnapshot: RoomSnapshot = {
       avatar: "queen",
       connectionStatus: "connected",
       isHost: false,
+      isMuted: false,
       wantsHost: true,
       joinedAt: 2
     },
@@ -401,6 +453,7 @@ export const mockRoomSnapshot: RoomSnapshot = {
       avatar: "knight",
       connectionStatus: "connected",
       isHost: false,
+      isMuted: false,
       wantsHost: true,
       joinedAt: 3
     },
@@ -410,6 +463,7 @@ export const mockRoomSnapshot: RoomSnapshot = {
       avatar: "bishop",
       connectionStatus: "connected",
       isHost: false,
+      isMuted: false,
       wantsHost: false,
       joinedAt: 4
     },
@@ -419,6 +473,7 @@ export const mockRoomSnapshot: RoomSnapshot = {
       avatar: "rook",
       connectionStatus: "connected",
       isHost: false,
+      isMuted: false,
       wantsHost: false,
       joinedAt: 5
     },
@@ -428,6 +483,7 @@ export const mockRoomSnapshot: RoomSnapshot = {
       avatar: "pawn",
       connectionStatus: "disconnected",
       isHost: false,
+      isMuted: false,
       wantsHost: false,
       joinedAt: 6
     }
@@ -469,6 +525,7 @@ export const mockRoomSnapshot: RoomSnapshot = {
   activeHostVote: null,
   activeGame: null,
   availableGames: previewGameManifests,
+  isLocked: false,
   playerCount: 6,
   maxPlayers: 8,
   gamesAvailable: true,
@@ -542,6 +599,7 @@ export function createEmptyRoomSnapshot({
     activeHostVote: null,
     activeGame: null,
     availableGames: availableGames.map((game) => ({ ...game })),
+    isLocked: false,
     playerCount: 0,
     maxPlayers,
     gamesAvailable: availableGames.length > 0,
@@ -572,6 +630,10 @@ export function joinLocalPlayer(
     return blocked(next, "Room is full.");
   }
 
+  if (next.isLocked && next.players.length > 0) {
+    return blocked(next, "Room is locked.");
+  }
+
   if (next.players.some((player) => player.id === input.id)) {
     return blocked(next, `${input.name} is already in the room.`);
   }
@@ -583,6 +645,7 @@ export function joinLocalPlayer(
     avatar: input.avatar,
     connectionStatus: "connected",
     isHost: false,
+    isMuted: false,
     wantsHost: Boolean(input.wantsHost),
     joinedAt
   });
@@ -669,6 +732,10 @@ export function sendLocalMessage(
     return blocked(next, "Only connected players can send shouts.");
   }
 
+  if (player.isMuted) {
+    return blocked(next, "You are muted in this room.");
+  }
+
   const trimmed = text.trim();
 
   if (trimmed.length === 0) {
@@ -693,6 +760,62 @@ export function sendLocalMessage(
   ].slice(-8);
 
   return success(normalizeRoom(next), `${player.name} sent "${trimmed}".`);
+}
+
+export function updateLocalRoomSettings(
+  room: RoomSnapshot,
+  hostPlayerId: string,
+  settings: { isLocked?: boolean; maxPlayers?: number }
+): LobbyActionResult {
+  const next = cloneRoom(room);
+  const host = next.players.find((player) => player.id === hostPlayerId);
+
+  if (!host || host.connectionStatus !== "connected" || next.hostPlayerId !== hostPlayerId) {
+    return blocked(next, "Only the current host can change room controls.");
+  }
+
+  if (settings.maxPlayers !== undefined) {
+    const maxPlayers = Math.trunc(settings.maxPlayers);
+
+    if (maxPlayers < next.players.length || maxPlayers < 2 || maxPlayers > 8) {
+      return blocked(next, "Capacity must be between current players and 8.");
+    }
+
+    next.maxPlayers = maxPlayers;
+  }
+
+  if (settings.isLocked !== undefined) {
+    next.isLocked = settings.isLocked;
+  }
+
+  return success(normalizeRoom(next), "Room controls updated.");
+}
+
+export function muteLocalPlayer(
+  room: RoomSnapshot,
+  hostPlayerId: string,
+  targetPlayerId: string,
+  isMuted: boolean
+): LobbyActionResult {
+  const next = cloneRoom(room);
+  const host = next.players.find((player) => player.id === hostPlayerId);
+  const target = next.players.find((player) => player.id === targetPlayerId);
+
+  if (!host || host.connectionStatus !== "connected" || next.hostPlayerId !== hostPlayerId) {
+    return blocked(next, "Only the current host can mute players.");
+  }
+
+  if (!target) {
+    return blocked(next, "Player is not in the room.");
+  }
+
+  if (target.id === host.id) {
+    return blocked(next, "The host cannot mute themselves.");
+  }
+
+  target.isMuted = isMuted;
+
+  return success(normalizeRoom(next), `${target.name} is ${isMuted ? "muted" : "unmuted"}.`);
 }
 
 export function requestLocalHost(room: RoomSnapshot, playerId: string): LobbyActionResult {
@@ -946,6 +1069,10 @@ function cloneRoom(room: RoomSnapshot): RoomSnapshot {
 
 function normalizeRoom(room: RoomSnapshot): RoomSnapshot {
   const availableGames = room.availableGames.map((game) => ({ ...game }));
+  const maxPlayers = Math.min(
+    8,
+    Math.max(2, room.players.length, Number.isFinite(room.maxPlayers) ? room.maxPlayers : 8)
+  );
   const selectedGameId = availableGames.some((game) => game.id === room.selectedGameId)
     ? room.selectedGameId
     : null;
@@ -982,11 +1109,14 @@ function normalizeRoom(room: RoomSnapshot): RoomSnapshot {
     activeGame,
     availableGames,
     hostPlayerId,
+    isLocked: Boolean(room.isLocked),
     playerCount: room.players.length,
+    maxPlayers,
     gamesAvailable: availableGames.length > 0,
     selectedGameId,
     players: room.players.map((player) => ({
       ...player,
+      isMuted: Boolean(player.isMuted),
       isHost: player.id === hostPlayerId,
       wantsHost: player.id === hostPlayerId ? false : player.wantsHost
     })),

@@ -4,7 +4,21 @@ Group Crash is a web-first second-screen multiplayer game platform for TV and ph
 
 The TV shows the shared lobby and game experience. Players scan a QR code, join from their phones, send quick messages, request host control, vote on host changes, and eventually use their phones as private controllers for modular party games.
 
-The current development milestone is the lobby plus playable modular games: `Imposter Crash` and `Sketch Crash`.
+The current build includes the lobby, host room controls, public deployment, restart-persistence hooks, and two playable modular games: `Imposter Crash` and `Sketch Crash`.
+
+## Live Demo
+
+```text
+TV app: https://crashtv.formawebsite.com
+Phone controller: https://crash-join.formawebsite.com
+```
+
+## Portfolio Links
+
+- [Portfolio case study](docs/portfolio-case-study.md)
+- [Demo recording script](docs/demo-script.md)
+- [Reliability plan](docs/reliability.md)
+- [Deployment guide](docs/deployment.md)
 
 ## MVP Scope
 
@@ -17,11 +31,14 @@ The lobby MVP includes:
 - Host request and majority host-transfer vote
 - Voluntary room leave with automatic host reassignment
 - Quick messages from phones to the TV lobby
+- Host room lock and 2-8 player capacity control
+- Host mute and kick controls
 - Modular game registry with non-playable `Demo Crash` plus playable `Imposter Crash` and `Sketch Crash`
 - Host-only game selection
 - Selected game display on TV and host controller
 - Server-authoritative room state
 - Reconnectable player sessions
+- Optional room persistence using a local file store or Redis-compatible store
 
 The MVP does not include:
 
@@ -30,7 +47,7 @@ The MVP does not include:
 - Persistent profiles
 - Voice chat
 - Native Android TV wrapper
-- Database persistence
+- User accounts and persistent player profiles
 - Payment or monetization
 
 ## Design Source
@@ -52,19 +69,12 @@ The implementation should follow the Group Crash design system:
 
 ## Planned Architecture
 
-```text
-TV web app
-  React + TypeScript + Vite
-        |
-        | WebSocket
-        v
-Authoritative multiplayer server
-  Node.js + TypeScript + WebSocket
-        ^
-        | WebSocket
-        |
-Phone controller web app
-  React + TypeScript + Vite
+```mermaid
+flowchart LR
+  TV["TV web app\nReact + TypeScript + Vite"] <-->|"public room state"| Server["Authoritative multiplayer server\nNode.js + TypeScript + WebSocket"]
+  Phone["Phone controller web app\nReact + TypeScript + Vite"] <-->|"player intentions + private state"| Server
+  Store["Optional room store\nfile dev / Redis deploy"] <-->|"snapshots + reconnect tokens"| Server
+  Server --> Games["Modular games\nImposter + Sketch"]
 ```
 
 The Android TV app will come later as a thin WebView wrapper around the TV web app. The product should be built and proven in the browser first.
@@ -109,6 +119,8 @@ group-crash/
 
 ## Current Status
 
-Milestone 7 is next. The TV and phone controller connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, host transfer, reconnect grace, room expiration, host-only game selection, and playable `Imposter Crash` and `Sketch Crash` loops. The server keeps secret roles, prompts, drawing strokes, guesses, and game results authoritative, sends private state only to the correct player's phone, and broadcasts public game state to the TV.
+The public browser MVP is live. The TV and phone controller connect to an authoritative WebSocket server for room creation, joining, shouts, host requests, host votes, host transfer, reconnect grace, room expiration, room lock/capacity controls, host mute/kick actions, host-only game selection, and playable `Imposter Crash` and `Sketch Crash` loops.
+
+The server keeps secret roles, prompts, drawing strokes, guesses, and game results authoritative, sends private state only to the correct player's phone, and broadcasts public game state to the TV.
 
 See [docs/deployment.md](docs/deployment.md) for the public test deployment plan.

@@ -20,6 +20,7 @@ The lobby MVP is complete when these behaviors work.
 - Player can join as regular player.
 - Player can request host while joining.
 - Room rejects joins after capacity is reached.
+- Room rejects joins while locked.
 
 ## Live Presence
 
@@ -38,6 +39,7 @@ The lobby MVP is complete when these behaviors work.
 - Over-length messages are rejected.
 - Message spam is rate-limited.
 - Player-provided HTML is not rendered as HTML.
+- Muted players cannot send messages.
 
 ## Initial Host
 
@@ -71,12 +73,21 @@ The lobby MVP is complete when these behaviors work.
 - Regular players cannot start or advance games.
 - The host can voluntarily pass host.
 - Passing host changes host server-side.
+- Host can lock and unlock the room.
+- Host can lower capacity only down to the current player count.
+- Host can raise capacity up to 8 players.
+- Host can mute and unmute player shouts.
+- Host can kick a player from the room.
+- Kicked players lose access to the room.
+- Regular players cannot use host room controls.
 
 ## Host Disconnect
 
 - Host disconnection starts a 30-second grace period.
 - Host reconnecting within grace keeps host status.
 - Host not reconnecting within grace assigns host to the longest-connected eligible player.
+- Persisted rooms can be restored after a server restart when a room store is configured.
+- TV reconnects to its previous room code after a server restart.
 
 ## Server Authority
 

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -41,10 +43,12 @@ try {
 
   await testInvalidPayload();
   await testMessageRateLimitAndHostPass();
+  await testRoomControls();
   await testImposterGameFlow();
   await testSketchGameFlow();
   await testReconnectGraceKeepsHost();
   await testHostReassignsAfterGrace();
+  await testFilePersistenceRestoresRoom();
   await testRoomExpiration();
 
   console.log("Group Crash server integration tests passed.");
@@ -54,12 +58,12 @@ try {
 
 process.exit(0);
 
-async function waitForServer() {
+async function waitForServer(targetServerUrl = serverUrl, getOutput = () => serverOutput) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < 10_000) {
     try {
-      const response = await fetch(serverUrl);
+      const response = await fetch(targetServerUrl);
 
       if (response.ok) {
         return;
@@ -69,7 +73,7 @@ async function waitForServer() {
     }
   }
 
-  throw new Error(`Server did not start.\n${serverOutput}`);
+  throw new Error(`Server did not start.\n${getOutput()}`);
 }
 
 async function testInvalidPayload() {
@@ -154,6 +158,88 @@ async function testMessageRateLimitAndHostPass() {
   );
 
   [tv, alex.client, maya.client, jay.client].forEach((client) => client.close());
+}
+
+async function testRoomControls() {
+  const tv = await connectClient("tv-controls");
+  const roomCode = await createRoom(tv);
+  const alex = await joinPlayer(roomCode, "Alex", "king");
+  const maya = await joinPlayer(roomCode, "Maya", "queen");
+  await tv.waitFor("room.snapshot", (event) => event.payload.playerCount === 2);
+
+  alex.client.send({
+    type: "room.settings.update",
+    payload: {
+      hostPlayerId: alex.session.playerId,
+      isLocked: true,
+      roomCode
+    }
+  });
+  await tv.waitFor("room.snapshot", (event) => event.payload.isLocked === true);
+
+  const jay = await connectClient("player-Jay-locked");
+  jay.send({
+    type: "room.join",
+    payload: { avatar: "bishop", name: "Jay", roomCode, wantsHost: false }
+  });
+  await jay.waitFor("error", (event) => event.payload.code === "ROOM_LOCKED");
+
+  alex.client.send({
+    type: "room.settings.update",
+    payload: {
+      hostPlayerId: alex.session.playerId,
+      maxPlayers: 2,
+      roomCode
+    }
+  });
+  await tv.waitFor("room.snapshot", (event) => event.payload.maxPlayers === 2);
+
+  alex.client.send({
+    type: "player.mute",
+    payload: {
+      hostPlayerId: alex.session.playerId,
+      isMuted: true,
+      roomCode,
+      targetPlayerId: maya.session.playerId
+    }
+  });
+  await tv.waitFor(
+    "room.snapshot",
+    (event) =>
+      event.payload.players.some(
+        (player) => player.id === maya.session.playerId && player.isMuted
+      )
+  );
+
+  maya.client.send({
+    type: "message.send",
+    payload: { playerId: maya.session.playerId, roomCode, text: "Muted?" }
+  });
+  await maya.client.waitFor(
+    "error",
+    (event) => event.payload.code === "PLAYER_MUTED"
+  );
+
+  alex.client.send({
+    type: "player.kick",
+    payload: {
+      hostPlayerId: alex.session.playerId,
+      roomCode,
+      targetPlayerId: maya.session.playerId
+    }
+  });
+  await maya.client.waitFor(
+    "player.kicked",
+    (event) => event.payload.targetPlayerId === maya.session.playerId
+  );
+  await tv.waitFor(
+    "room.snapshot",
+    (event) =>
+      event.payload.playerCount === 1 &&
+      event.payload.players.every((player) => player.id !== maya.session.playerId)
+  );
+
+  [tv, alex.client, maya.client, jay].forEach((client) => client.close());
 }
 
 async function testImposterGameFlow() {
@@ -501,6 +587,78 @@ async function testHostReassignsAfterGrace() {
   [tv, maya.client].forEach((client) => client.close());
 }
 
+async function testFilePersistenceRestoresRoom() {
+  const tempDir = await mkdtemp(path.join(tmpdir(), "group-crash-"));
+  const storePath = path.join(tempDir, "rooms.json");
+  const persistencePort = port + 1;
+  const persistenceServerUrl = `http://127.0.0.1:${persistencePort}`;
+  const persistenceSocketUrl = `ws://127.0.0.1:${persistencePort}`;
+  let processA = null;
+  let processB = null;
+
+  try {
+    processA = startServerProcess(persistencePort, {
+      RECONNECT_GRACE_MS: "1500",
+      ROOM_STORE_FILE_PATH: storePath,
+      ROOM_TTL_MS: "5000"
+    });
+    await waitForServer(persistenceServerUrl, () => processA.output);
+
+    const tvA = await connectClient("tv-persist-a", persistenceSocketUrl);
+    const roomCode = await createRoom(tvA);
+    const alex = await joinPlayer(roomCode, "Alex", "king", false, persistenceSocketUrl);
+    const maya = await joinPlayer(roomCode, "Maya", "queen", false, persistenceSocketUrl);
+    await tvA.waitFor("room.snapshot", (event) => event.payload.playerCount === 2);
+    await delay(120);
+    [tvA, alex.client, maya.client].forEach((client) => client.close());
+    stopProcess(processA.process);
+
+    processB = startServerProcess(persistencePort, {
+      RECONNECT_GRACE_MS: "1500",
+      ROOM_STORE_FILE_PATH: storePath,
+      ROOM_TTL_MS: "5000"
+    });
+    await waitForServer(persistenceServerUrl, () => processB.output);
+
+    const tvB = await connectClient("tv-persist-b", persistenceSocketUrl);
+    tvB.send({ type: "room.watch", payload: { roomCode } });
+    await tvB.waitFor(
+      "room.snapshot",
+      (event) =>
+        event.payload.roomCode === roomCode &&
+        event.payload.playerCount === 2 &&
+        event.payload.players.every(
+          (player) => player.connectionStatus === "disconnected"
+        )
+    );
+
+    const alexReconnect = await connectClient("alex-persist-reconnect", persistenceSocketUrl);
+    alexReconnect.send({ type: "room.reconnect", payload: alex.session });
+    await alexReconnect.waitFor("player.session");
+    await tvB.waitFor(
+      "room.snapshot",
+      (event) =>
+        event.payload.players.some(
+          (player) =>
+            player.id === alex.session.playerId &&
+            player.connectionStatus === "connected"
+        )
+    );
+
+    [tvB, alexReconnect].forEach((client) => client.close());
+  } finally {
+    if (processA) {
+      stopProcess(processA.process);
+    }
+
+    if (processB) {
+      stopProcess(processB.process);
+    }
+
+    await rm(tempDir, { force: true, recursive: true });
+  }
+}
+
 async function testRoomExpiration() {
   const tv = await connectClient("tv-expiration");
   const roomCode = await createRoom(tv);
@@ -525,8 +683,14 @@ async function createRoom(client) {
   return created.payload.roomCode;
 }
 
-async function joinPlayer(roomCode, name, avatar, wantsHost = false) {
-  const client = await connectClient(`player-${name}`);
+async function joinPlayer(
+  roomCode,
+  name,
+  avatar,
+  wantsHost = false,
+  targetSocketUrl = socketUrl
+) {
+  const client = await connectClient(`player-${name}`, targetSocketUrl);
   client.send({
     type: "room.join",
     payload: { avatar, name, roomCode, wantsHost }
@@ -536,8 +700,8 @@ async function joinPlayer(roomCode, name, avatar, wantsHost = false) {
   return { client, session: sessionEvent.payload };
 }
 
-async function connectClient(label) {
-  const socket = new WebSocket(socketUrl);
+async function connectClient(label, targetSocketUrl = socketUrl) {
+  const socket = new WebSocket(targetSocketUrl);
   const messages = [];
 
   socket.addEventListener("message", (event) => {
@@ -589,12 +753,46 @@ function delay(ms) {
 }
 
 function stopServerProcess() {
+  stopProcess(serverProcess);
+}
+
+function startServerProcess(targetPort, extraEnv = {}) {
+  const child = spawn(process.execPath, [tsxCliPath, "src/index.ts"], {
+    cwd: serverDir,
+    env: {
+      ...process.env,
+      CLEANUP_INTERVAL_MS: "50",
+      MESSAGE_COOLDOWN_MS: "40",
+      PORT: String(targetPort),
+      RECONNECT_GRACE_MS: "300",
+      ROOM_TTL_MS: "350",
+      ...extraEnv
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const state = { output: "", process: child };
+
+  child.stdout.on("data", (chunk) => {
+    state.output += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    state.output += chunk.toString();
+  });
+
+  return state;
+}
+
+function stopProcess(child) {
+  if (!child || child.killed) {
+    return;
+  }
+
   if (process.platform === "win32") {
-    spawnSync("taskkill", ["/pid", String(serverProcess.pid), "/t", "/f"], {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
       stdio: "ignore"
     });
     return;
   }
 
-  serverProcess.kill();
+  child.kill();
 }

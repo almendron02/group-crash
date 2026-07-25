@@ -4,13 +4,18 @@ import {
   DoorOpen,
   Eye,
   Gamepad2,
+  Lock,
   MessageCircle,
   Palette,
   Play,
   Send,
   ShieldAlert,
   Trophy,
+  Unlock,
   UserPlus,
+  UserX,
+  Volume2,
+  VolumeX,
   Vote
 } from "lucide-react";
 import {
@@ -199,6 +204,37 @@ export function App() {
           return;
         }
 
+        if (
+          event.type === "player.kicked" &&
+          event.payload.targetPlayerId === readStoredSession()?.playerId
+        ) {
+          window.localStorage.removeItem(storageKey);
+          setHasJoined(false);
+          setPlayerSession(null);
+          setRoom(null);
+          setPrivateGame(null);
+          setFeedback("The host removed you from the room.");
+          setScreen("name");
+          return;
+        }
+
+        if (
+          event.type === "player.muted" &&
+          event.payload.targetPlayerId === readStoredSession()?.playerId
+        ) {
+          setFeedback(event.payload.isMuted ? "The host muted your shouts." : "You can send shouts again.");
+          return;
+        }
+
+        if (event.type === "room.settings.updated") {
+          setFeedback(
+            event.payload.isLocked
+              ? `Room locked at ${event.payload.maxPlayers} players.`
+              : `Room open at ${event.payload.maxPlayers} players.`
+          );
+          return;
+        }
+
         if (event.type === "error") {
           setFeedback(event.payload.message);
         }
@@ -244,6 +280,7 @@ export function App() {
         connectionStatus: connectionStatus === "connected" ? "connected" as const : "disconnected" as const,
         isHost: false,
         wantsHost,
+        isMuted: false,
         joinedAt: Date.now()
       },
     [avatar, connectionStatus, playerName, playerSession, room?.players, wantsHost]
@@ -399,6 +436,58 @@ export function App() {
         hostPlayerId: playerSession.playerId,
         roomCode: playerSession.roomCode,
         targetPlayerId: passTargetPlayerId
+      }
+    });
+  }
+
+  function updateRoomSettingsFromPhone(settings: {
+    isLocked?: boolean;
+    maxPlayers?: number;
+  }) {
+    if (!playerSession) {
+      setFeedback("Join the room before changing room controls.");
+      return;
+    }
+
+    sendEvent({
+      type: "room.settings.update",
+      payload: {
+        hostPlayerId: playerSession.playerId,
+        roomCode: playerSession.roomCode,
+        ...settings
+      }
+    });
+  }
+
+  function kickPlayerFromPhone(targetPlayerId: string) {
+    if (!playerSession) {
+      setFeedback("Join the room before removing players.");
+      return;
+    }
+
+    sendEvent({
+      type: "player.kick",
+      payload: {
+        hostPlayerId: playerSession.playerId,
+        roomCode: playerSession.roomCode,
+        targetPlayerId
+      }
+    });
+  }
+
+  function mutePlayerFromPhone(targetPlayerId: string, isMuted: boolean) {
+    if (!playerSession) {
+      setFeedback("Join the room before muting players.");
+      return;
+    }
+
+    sendEvent({
+      type: "player.mute",
+      payload: {
+        hostPlayerId: playerSession.playerId,
+        isMuted,
+        roomCode: playerSession.roomCode,
+        targetPlayerId
       }
     });
   }
@@ -690,11 +779,14 @@ export function App() {
             sentMessage={sentMessage}
             setPassTargetPlayerId={setPassTargetPlayerId}
             setSentMessage={setSentMessage}
+            onKickPlayer={kickPlayerFromPhone}
             onLeaveRoom={leaveRoomFromPhone}
+            onMutePlayer={mutePlayerFromPhone}
             onSelectGame={selectGameFromPhone}
             onSendMessage={sendSelectedMessage}
             onStartGame={startGameFromPhone}
             onPassHost={passHostFromPhone}
+            onUpdateRoomSettings={updateRoomSettingsFromPhone}
           />
         ) : null}
 
@@ -739,6 +831,7 @@ interface LobbyControllerProps {
   player: {
     name: string;
     avatar: ChessAvatar;
+    isMuted?: boolean;
   };
   feedback: string;
   hostName: string;
@@ -782,6 +875,7 @@ function LobbyController({
       </div>
 
       <QuickMessageControls
+        disabled={Boolean(player.isMuted)}
         sentMessage={sentMessage}
         setSentMessage={setSentMessage}
         onSendMessage={onSendMessage}
@@ -821,10 +915,13 @@ interface HostControllerProps {
   setPassTargetPlayerId: (playerId: string) => void;
   setSentMessage: (message: string) => void;
   onLeaveRoom: () => void;
+  onKickPlayer: (targetPlayerId: string) => void;
+  onMutePlayer: (targetPlayerId: string, isMuted: boolean) => void;
   onSelectGame: (gameId: string) => void;
   onSendMessage: () => void;
   onStartGame: () => void;
   onPassHost: () => void;
+  onUpdateRoomSettings: (settings: { isLocked?: boolean; maxPlayers?: number }) => void;
 }
 
 function HostController({
@@ -836,14 +933,19 @@ function HostController({
   sentMessage,
   setPassTargetPlayerId,
   setSentMessage,
+  onKickPlayer,
   onLeaveRoom,
+  onMutePlayer,
   onSelectGame,
   onPassHost,
   onSendMessage,
-  onStartGame
+  onStartGame,
+  onUpdateRoomSettings
 }: HostControllerProps) {
   const games = room?.availableGames ?? [];
   const selectedGame = games.find((game) => game.id === room?.selectedGameId);
+  const controlTargets =
+    room?.players.filter((candidate) => candidate.id !== room.hostPlayerId) ?? [];
   const selectedGameCanStart =
     Boolean(selectedGame) &&
     selectedGame?.status === "playable" &&
@@ -908,6 +1010,70 @@ function HostController({
         onSendMessage={onSendMessage}
       />
 
+      <div className="room-controls-card">
+        <div className="section-label">
+          {room?.isLocked ? <Lock aria-hidden="true" /> : <Unlock aria-hidden="true" />}
+          <span>Room controls</span>
+        </div>
+        <div className="room-control-row">
+          <label htmlFor="room-capacity">Capacity</label>
+          <select
+            id="room-capacity"
+            className="target-select"
+            value={room?.maxPlayers ?? 8}
+            onChange={(event) =>
+              onUpdateRoomSettings({ maxPlayers: Number(event.target.value) })
+            }
+          >
+            {[2, 3, 4, 5, 6, 7, 8].map((capacity) => (
+              <option
+                disabled={capacity < (room?.playerCount ?? 0)}
+                key={capacity}
+                value={capacity}
+              >
+                {capacity} players
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="secondary"
+            icon={room?.isLocked ? <Unlock aria-hidden="true" /> : <Lock aria-hidden="true" />}
+            onClick={() => onUpdateRoomSettings({ isLocked: !room?.isLocked })}
+          >
+            {room?.isLocked ? "Unlock" : "Lock"}
+          </Button>
+        </div>
+
+        <div className="moderation-list">
+          {controlTargets.map((target) => (
+            <div className="moderation-row" key={target.id}>
+              <ChessAvatarBadge avatar={target.avatar} size="xs" />
+              <div>
+                <strong>{target.name}</strong>
+                <span>
+                  {target.connectionStatus}
+                  {target.isMuted ? " / muted" : ""}
+                </span>
+              </div>
+              <button
+                className="mini-control-button"
+                onClick={() => onMutePlayer(target.id, !target.isMuted)}
+              >
+                {target.isMuted ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
+                <span>{target.isMuted ? "Unmute" : "Mute"}</span>
+              </button>
+              <button
+                className="mini-control-button danger"
+                onClick={() => onKickPlayer(target.id)}
+              >
+                <UserX aria-hidden="true" />
+                <span>Kick</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="pass-host-card">
         <div className="section-label">
           <Crown aria-hidden="true" />
@@ -958,12 +1124,14 @@ function HostController({
 }
 
 interface QuickMessageControlsProps {
+  disabled?: boolean;
   sentMessage: string;
   setSentMessage: (message: string) => void;
   onSendMessage: () => void;
 }
 
 function QuickMessageControls({
+  disabled = false,
   sentMessage,
   setSentMessage,
   onSendMessage
@@ -979,6 +1147,7 @@ function QuickMessageControls({
           <button
             className="quick-message-button"
             key={message}
+            disabled={disabled}
             data-selected={sentMessage === message}
             onClick={() => setSentMessage(message)}
           >
@@ -987,6 +1156,7 @@ function QuickMessageControls({
         ))}
       </div>
       <Button
+        disabled={disabled}
         variant="secondary"
         icon={<Send aria-hidden="true" />}
         onClick={onSendMessage}
