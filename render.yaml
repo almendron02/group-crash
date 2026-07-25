@@ -13,10 +13,7 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: CONTROLLER_ORIGIN
-        fromService:
-          type: web
-          name: group-crash-controller
-          envVarKey: RENDER_EXTERNAL_URL
+        value: https://crash-join.formawebsite.com
       - key: ROOM_TTL_MS
         value: "7200000"
       - key: RECONNECT_GRACE_MS
@@ -31,6 +28,8 @@ services:
   - type: web
     name: group-crash-controller
     runtime: static
+    domains:
+      - crash-join.formawebsite.com
     buildCommand: pnpm install --frozen-lockfile && pnpm --filter @group-crash/controller build
     staticPublishPath: apps/controller/dist
     autoDeployTrigger: commit
@@ -46,6 +45,8 @@ services:
   - type: web
     name: group-crash-tv
     runtime: static
+    domains:
+      - crashtv.formawebsite.com
     buildCommand: pnpm install --frozen-lockfile && pnpm --filter @group-crash/tv build
     staticPublishPath: apps/tv/dist
     autoDeployTrigger: commit
@@ -58,7 +59,4 @@ services:
           name: group-crash-server
           envVarKey: RENDER_EXTERNAL_URL
       - key: VITE_GROUP_CRASH_CONTROLLER_URL
-        fromService:
-          type: web
-          name: group-crash-controller
-          envVarKey: RENDER_EXTERNAL_URL
+        value: https://crash-join.formawebsite.com
