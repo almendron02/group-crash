@@ -109,14 +109,15 @@ export function App() {
     [createdRoom, room]
   );
   const roomCode = displayRoom.roomCode;
-  const joinUrl = createdRoom?.joinUrl ?? getControllerJoinUrl(roomCode);
+  const joinUrl = getControllerJoinUrl(roomCode);
   const host = displayRoom.players.find(
     (player) => player.id === displayRoom.hostPlayerId
   );
   const hostCandidates = displayRoom.players.filter(
     (player) => player.wantsHost && !player.isHost
   );
-  const selectedGame = displayRoom.availableGames.find(
+  const availableGames = displayRoom.availableGames ?? [];
+  const selectedGame = availableGames.find(
     (game) => game.id === displayRoom.selectedGameId
   );
   const visibleMessages = [...displayRoom.messages]
@@ -162,9 +163,9 @@ export function App() {
             </section>
           ) : (
             <EmptyGameCard
-              title={displayRoom.gamesAvailable ? "Pick a game shell" : "No games added yet"}
+              title={availableGames.length > 0 ? "Pick a game shell" : "No games added yet"}
               subtitle={
-                displayRoom.gamesAvailable
+                availableGames.length > 0
                   ? "The host can select a registered module from their phone."
                   : "The host will choose from this shelf once games are installed."
               }
