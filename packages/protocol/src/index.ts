@@ -1,3 +1,7 @@
+import type { GameManifest } from "@group-crash/game-engine";
+
+export type { GameManifest } from "@group-crash/game-engine";
+
 export type ChessAvatar =
   | "pawn"
   | "knight"
@@ -47,9 +51,11 @@ export interface RoomSnapshot {
   players: PublicPlayer[];
   messages: LobbyMessage[];
   activeHostVote: HostVote | null;
+  availableGames: GameManifest[];
   playerCount: number;
   maxPlayers: number;
   gamesAvailable: boolean;
+  selectedGameId: string | null;
 }
 
 export interface CreateRoomPayload {
@@ -102,6 +108,12 @@ export interface PassHostPayload {
   targetPlayerId?: string;
 }
 
+export interface SelectGamePayload {
+  roomCode: string;
+  hostPlayerId: string;
+  gameId: string;
+}
+
 export type ClientEvent =
   | { type: "room.create"; payload: CreateRoomPayload }
   | { type: "room.watch"; payload: WatchRoomPayload }
@@ -111,7 +123,8 @@ export type ClientEvent =
   | { type: "message.send"; payload: SendMessagePayload }
   | { type: "host.request"; payload: HostRequestPayload }
   | { type: "host.vote.cast"; payload: CastHostVotePayload }
-  | { type: "host.pass"; payload: PassHostPayload };
+  | { type: "host.pass"; payload: PassHostPayload }
+  | { type: "game.select"; payload: SelectGamePayload };
 
 export interface RoomCreatedPayload {
   roomId: string;
@@ -154,6 +167,12 @@ export interface RoomClosedPayload {
   reason: "tv_disconnected" | "expired" | "server_shutdown";
 }
 
+export interface GameSelectedPayload {
+  roomCode: string;
+  gameId: string;
+  selectedByPlayerId: string;
+}
+
 export interface ServerErrorPayload {
   code:
     | "ROOM_NOT_FOUND"
@@ -164,6 +183,7 @@ export interface ServerErrorPayload {
     | "RATE_LIMITED"
     | "NOT_HOST"
     | "VOTE_NOT_FOUND"
+    | "GAME_NOT_FOUND"
     | "NOT_ELIGIBLE"
     | "UNKNOWN";
   message: string;
@@ -181,6 +201,7 @@ export type ServerEvent =
   | { type: "host.vote.started"; payload: HostVote }
   | { type: "host.vote.updated"; payload: HostVote }
   | { type: "host.vote.completed"; payload: HostVoteCompletedPayload }
+  | { type: "game.selected"; payload: GameSelectedPayload }
   | { type: "room.closed"; payload: RoomClosedPayload }
   | { type: "error"; payload: ServerErrorPayload };
 
@@ -191,6 +212,19 @@ export const avatarOptions: ChessAvatar[] = [
   "rook",
   "queen",
   "king"
+];
+
+export const previewGameManifests: GameManifest[] = [
+  {
+    id: "demo-crash",
+    name: "Demo Crash",
+    tagline: "Registry test module",
+    description:
+      "A non-playable shell that proves hosts can select modular games before playable games are installed.",
+    minPlayers: 1,
+    maxPlayers: 8,
+    status: "shell"
+  }
 ];
 
 export const mockRoomSnapshot: RoomSnapshot = {
@@ -289,9 +323,11 @@ export const mockRoomSnapshot: RoomSnapshot = {
     }
   ],
   activeHostVote: null,
+  availableGames: previewGameManifests,
   playerCount: 6,
   maxPlayers: 8,
-  gamesAvailable: false
+  gamesAvailable: true,
+  selectedGameId: "demo-crash"
 };
 
 export const mockVoteRoomSnapshot: RoomSnapshot = {
@@ -341,10 +377,12 @@ const previewBenchPlayers: JoinLocalPlayerInput[] = [
 ];
 
 export function createEmptyRoomSnapshot({
+  availableGames = [],
   maxPlayers = 8,
   roomCode,
   roomId
 }: {
+  availableGames?: GameManifest[];
   maxPlayers?: number;
   roomCode: string;
   roomId: string;
@@ -357,9 +395,11 @@ export function createEmptyRoomSnapshot({
     players: [],
     messages: [],
     activeHostVote: null,
+    availableGames: availableGames.map((game) => ({ ...game })),
     playerCount: 0,
     maxPlayers,
-    gamesAvailable: false
+    gamesAvailable: availableGames.length > 0,
+    selectedGameId: null
   };
 }
 
@@ -647,6 +687,28 @@ export function passLocalHost(room: RoomSnapshot, targetPlayerId?: string): Lobb
   return setHost(next, target.id, `${currentHost.name} passed host to ${target.name}.`);
 }
 
+export function selectLocalGame(
+  room: RoomSnapshot,
+  hostPlayerId: string,
+  gameId: string
+): LobbyActionResult {
+  const next = cloneRoom(room);
+  const host = next.players.find((player) => player.id === hostPlayerId);
+  const game = next.availableGames.find((candidate) => candidate.id === gameId);
+
+  if (!host || host.connectionStatus !== "connected" || next.hostPlayerId !== hostPlayerId) {
+    return blocked(next, "Only the current host can select games.");
+  }
+
+  if (!game) {
+    return blocked(next, "That game is not installed in this room.");
+  }
+
+  next.selectedGameId = game.id;
+
+  return success(normalizeRoom(next), `${host.name} selected ${game.name}.`);
+}
+
 export function disconnectLocalPlayer(room: RoomSnapshot, playerId: string): LobbyActionResult {
   const next = cloneRoom(room);
   const player = next.players.find((candidate) => candidate.id === playerId);
@@ -716,6 +778,7 @@ export function reconnectLocalPlayer(room: RoomSnapshot, playerId: string): Lobb
 function cloneRoom(room: RoomSnapshot): RoomSnapshot {
   return {
     ...room,
+    availableGames: room.availableGames.map((game) => ({ ...game })),
     players: room.players.map((player) => ({ ...player })),
     messages: room.messages.map((message) => ({ ...message })),
     activeHostVote: room.activeHostVote
@@ -730,6 +793,10 @@ function cloneRoom(room: RoomSnapshot): RoomSnapshot {
 }
 
 function normalizeRoom(room: RoomSnapshot): RoomSnapshot {
+  const availableGames = room.availableGames.map((game) => ({ ...game }));
+  const selectedGameId = availableGames.some((game) => game.id === room.selectedGameId)
+    ? room.selectedGameId
+    : null;
   const connectedEligibleIds = new Set(
     room.players
       .filter((player) => player.connectionStatus === "connected")
@@ -759,8 +826,11 @@ function normalizeRoom(room: RoomSnapshot): RoomSnapshot {
 
   return {
     ...room,
+    availableGames,
     hostPlayerId,
     playerCount: room.players.length,
+    gamesAvailable: availableGames.length > 0,
+    selectedGameId,
     players: room.players.map((player) => ({
       ...player,
       isHost: player.id === hostPlayerId,

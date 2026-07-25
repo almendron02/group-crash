@@ -137,6 +137,11 @@ export function App() {
         return;
       }
 
+      if (event.type === "game.selected") {
+        setFeedback("Game module selected.");
+        return;
+      }
+
       if (event.type === "error") {
         setFeedback(event.payload.message);
       }
@@ -315,6 +320,22 @@ export function App() {
         hostPlayerId: playerSession.playerId,
         roomCode: playerSession.roomCode,
         targetPlayerId: passTargetPlayerId
+      }
+    });
+  }
+
+  function selectGameFromPhone(gameId: string) {
+    if (!playerSession) {
+      setFeedback("Join the room before selecting a game.");
+      return;
+    }
+
+    sendEvent({
+      type: "game.select",
+      payload: {
+        gameId,
+        hostPlayerId: playerSession.playerId,
+        roomCode: playerSession.roomCode
       }
     });
   }
@@ -500,10 +521,12 @@ export function App() {
             feedback={feedback}
             passTargetPlayerId={passTargetPlayerId}
             passTargets={passTargets}
+            room={room}
             sentMessage={sentMessage}
             setPassTargetPlayerId={setPassTargetPlayerId}
             setSentMessage={setSentMessage}
             onLeaveRoom={leaveRoomFromPhone}
+            onSelectGame={selectGameFromPhone}
             onSendMessage={sendSelectedMessage}
             onPassHost={passHostFromPhone}
           />
@@ -609,10 +632,12 @@ interface HostControllerProps {
   feedback: string;
   passTargetPlayerId: string;
   passTargets: PublicPlayer[];
+  room: RoomSnapshot | null;
   sentMessage: string;
   setPassTargetPlayerId: (playerId: string) => void;
   setSentMessage: (message: string) => void;
   onLeaveRoom: () => void;
+  onSelectGame: (gameId: string) => void;
   onSendMessage: () => void;
   onPassHost: () => void;
 }
@@ -622,13 +647,18 @@ function HostController({
   passTargetPlayerId,
   passTargets,
   player,
+  room,
   sentMessage,
   setPassTargetPlayerId,
   setSentMessage,
   onLeaveRoom,
+  onSelectGame,
   onPassHost,
   onSendMessage
 }: HostControllerProps) {
+  const games = room?.availableGames ?? [];
+  const selectedGame = games.find((game) => game.id === room?.selectedGameId);
+
   return (
     <section className="phone-card lobby-card host-card">
       <div className="player-strip">
@@ -642,11 +672,43 @@ function HostController({
         </Badge>
       </div>
 
-      <EmptyGameCard
-        title="No games added yet"
-        subtitle="This shelf will hold playable game modules after the lobby is live."
-        icon={<Gamepad2 aria-hidden="true" />}
-      />
+      <div className="game-registry-card">
+        <div className="section-label">
+          <Gamepad2 aria-hidden="true" />
+          <span>Game modules</span>
+        </div>
+        {games.length > 0 ? (
+          <div className="game-module-stack">
+            {games.map((game) => (
+              <button
+                className="game-module-option"
+                data-selected={game.id === room?.selectedGameId}
+                key={game.id}
+                onClick={() => onSelectGame(game.id)}
+              >
+                <span>{game.name}</span>
+                <small>{game.tagline}</small>
+                <strong>
+                  {game.status === "shell"
+                    ? "Shell"
+                    : `${game.minPlayers}-${game.maxPlayers} players`}
+                </strong>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <EmptyGameCard
+            title="No games added yet"
+            subtitle="This shelf will hold playable game modules after the lobby is live."
+            icon={<Gamepad2 aria-hidden="true" />}
+          />
+        )}
+        <p>
+          {selectedGame
+            ? `${selectedGame.name} is selected. Start will unlock when a playable module exists.`
+            : "Select a module shell to prove the platform registry is wired."}
+        </p>
+      </div>
 
       <QuickMessageControls
         sentMessage={sentMessage}
@@ -678,7 +740,7 @@ function HostController({
 
       <div className="host-controls">
         <Button variant="primary" disabled icon={<Gamepad2 aria-hidden="true" />}>
-          Start game
+          Start disabled
         </Button>
         <Button
           disabled={passTargets.length === 0}

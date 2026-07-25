@@ -106,6 +106,36 @@ async function testMessageRateLimitAndHostPass() {
     (event) => event.payload.hostPlayerId === jay.session.playerId
   );
 
+  maya.client.send({
+    type: "game.select",
+    payload: {
+      gameId: "demo-crash",
+      hostPlayerId: maya.session.playerId,
+      roomCode
+    }
+  });
+  await maya.client.waitFor(
+    "error",
+    (event) => event.payload.code === "NOT_HOST"
+  );
+
+  jay.client.send({
+    type: "game.select",
+    payload: {
+      gameId: "demo-crash",
+      hostPlayerId: jay.session.playerId,
+      roomCode
+    }
+  });
+  await tv.waitFor(
+    "game.selected",
+    (event) => event.payload.gameId === "demo-crash"
+  );
+  await tv.waitFor(
+    "room.snapshot",
+    (event) => event.payload.selectedGameId === "demo-crash"
+  );
+
   jay.client.send({
     type: "message.send",
     payload: { playerId: jay.session.playerId, roomCode, text: "Ready!" }

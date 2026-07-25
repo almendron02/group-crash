@@ -1,11 +1,18 @@
+export type GameModuleStatus = "shell" | "playable" | "coming_soon";
+
 export interface GameManifest {
+  description: string;
   id: string;
-  name: string;
   minPlayers: number;
   maxPlayers: number;
+  name: string;
+  status: GameModuleStatus;
+  tagline: string;
 }
 
 export interface GameContext {
+  hostPlayerId: string | null;
+  roomCode: string;
   roomId: string;
   playerIds: string[];
 }
@@ -22,4 +29,3 @@ export interface GroupCrashGame<State = unknown, Action = unknown> {
   getTvView(state: State): unknown;
   getPlayerView(state: State, playerId: string): unknown;
 }
-

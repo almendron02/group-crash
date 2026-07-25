@@ -10,6 +10,7 @@
     "test:integration": "node scripts/integration-test.mjs"
   },
   "dependencies": {
+    "@group-crash/demo-crash": "workspace:*",
     "@group-crash/protocol": "workspace:*"
   },
   "devDependencies": {

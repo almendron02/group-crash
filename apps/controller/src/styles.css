@@ -186,6 +186,7 @@ input {
 }
 
 .host-summary,
+.game-registry-card,
 .pass-host-card,
 .quick-message-card {
   padding: 16px;
@@ -199,6 +200,7 @@ input {
 }
 
 .host-card .gc-empty-game,
+.host-card .game-registry-card,
 .host-card .pass-host-card,
 .host-card .quick-message-card {
   padding: 10px;
@@ -226,6 +228,61 @@ input {
 .host-card .quick-message-button {
   padding: 7px;
   font-size: 12px;
+}
+
+.game-registry-card p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.18;
+}
+
+.game-module-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.game-module-option {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px;
+  color: var(--gc-ink);
+  background: var(--gc-cream);
+  border: 3px solid var(--gc-ink);
+  border-radius: var(--gc-radius-md);
+  cursor: pointer;
+  text-align: left;
+}
+
+.game-module-option[data-selected="true"] {
+  background: var(--gc-yellow);
+  box-shadow: 4px 4px 0 var(--gc-ink);
+}
+
+.game-module-option span {
+  overflow: hidden;
+  font-family: var(--gc-font-display);
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 0.98;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-module-option small,
+.game-module-option strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-module-option strong {
+  color: var(--gc-red);
+  text-transform: uppercase;
 }
 
 .target-select {

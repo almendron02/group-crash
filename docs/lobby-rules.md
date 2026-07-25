@@ -65,7 +65,17 @@ Only the current host can:
 - Start a game once games exist
 - Pass host voluntarily
 
-For the lobby MVP, the host sees the game library but the start control is disabled because no games exist.
+For the registry-shell milestone, the host can select a registered non-playable module. The start control remains disabled until a playable module exists.
+
+## Game Registry
+
+- Game modules expose a public manifest.
+- The server owns the room's available game list.
+- Clients receive available modules through `room.snapshot`.
+- Only the current connected host can select a module.
+- Regular players cannot select modules.
+- Selecting a module does not start gameplay.
+- The selected module is visible on the TV and host controller.
 
 ## Host Requests
 
@@ -149,4 +159,3 @@ Server decides: whether the vote is valid and whether the vote passes.
 ```
 
 The client must never directly assign itself host status.
-

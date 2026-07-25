@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import { demoCrashManifest } from "@group-crash/demo-crash";
 import {
   avatarOptions,
   castLocalHostVote,
@@ -11,6 +12,7 @@ import {
   reconnectLocalPlayer,
   removeLocalPlayer,
   requestLocalHost,
+  selectLocalGame,
   sendLocalMessage,
   type CastHostVotePayload,
   type ChessAvatar,
@@ -25,6 +27,7 @@ import {
   type ReconnectPayload,
   type RoomCreatedPayload,
   type RoomSnapshot,
+  type SelectGamePayload,
   type SendMessagePayload,
   type ServerErrorPayload,
   type ServerEvent,
@@ -39,6 +42,7 @@ const cleanupIntervalMs = Number(process.env.CLEANUP_INTERVAL_MS ?? 15_000);
 const messageCooldownMs = Number(process.env.MESSAGE_COOLDOWN_MS ?? 1200);
 const maxMessageBytes = Number(process.env.MAX_MESSAGE_BYTES ?? 4096);
 const roomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const gameRegistry = [demoCrashManifest];
 
 interface SocketPeer {
   id: string;
@@ -196,6 +200,9 @@ function handleClientMessage(peer: SocketPeer, rawMessage: string) {
     case "host.pass":
       handleHostPass(peer, event.payload);
       break;
+    case "game.select":
+      handleGameSelect(peer, event.payload);
+      break;
   }
 }
 
@@ -210,7 +217,7 @@ function handleCreateRoom(peer: SocketPeer) {
     lastMessageAtByPlayerId: new Map(),
     playerPeers: new Map(),
     reconnectTokensByPlayerId: new Map(),
-    snapshot: createEmptyRoomSnapshot({ roomCode, roomId })
+    snapshot: createEmptyRoomSnapshot({ availableGames: gameRegistry, roomCode, roomId })
   };
 
   roomsByCode.set(roomCode, record);
@@ -538,6 +545,47 @@ function handleHostPass(peer: SocketPeer, payload: PassHostPayload) {
     });
   }
 
+  broadcastSnapshot(record);
+}
+
+function handleGameSelect(peer: SocketPeer, payload: SelectGamePayload) {
+  const record = assertPlayerAction(peer, payload.roomCode, payload.hostPlayerId);
+
+  if (!record) {
+    return;
+  }
+
+  if (record.snapshot.hostPlayerId !== payload.hostPlayerId) {
+    sendError(peer, "NOT_HOST", "Only the current host can select games.");
+    return;
+  }
+
+  const result = selectLocalGame(
+    record.snapshot,
+    payload.hostPlayerId,
+    payload.gameId
+  );
+
+  if (result.status === "blocked") {
+    sendError(
+      peer,
+      result.notice === "That game is not installed in this room."
+        ? "GAME_NOT_FOUND"
+        : "NOT_ELIGIBLE",
+      result.notice
+    );
+    return;
+  }
+
+  record.snapshot = result.room;
+  broadcast(record, {
+    type: "game.selected",
+    payload: {
+      gameId: payload.gameId,
+      roomCode: record.snapshot.roomCode,
+      selectedByPlayerId: payload.hostPlayerId
+    }
+  });
   broadcastSnapshot(record);
 }
 
@@ -915,6 +963,20 @@ function parseClientEvent(rawMessage: string): ClientEvent | null {
               }
             }
           : null;
+      case "game.select":
+        return isRecord(payload) &&
+          isRoomCode(payload.roomCode) &&
+          isNonEmptyString(payload.hostPlayerId) &&
+          isGameId(payload.gameId)
+          ? {
+              type: "game.select",
+              payload: {
+                gameId: normalizeGameId(payload.gameId),
+                hostPlayerId: payload.hostPlayerId,
+                roomCode: normalizeRoomCode(payload.roomCode)
+              }
+            }
+          : null;
       default:
         return null;
     }
@@ -937,6 +999,14 @@ function isRoomCode(value: unknown): value is string {
 
 function normalizeRoomCode(value: string) {
   return value.trim().toUpperCase();
+}
+
+function isGameId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9-]{2,48}$/.test(value.trim().toLowerCase());
+}
+
+function normalizeGameId(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function optionalString(value: unknown) {

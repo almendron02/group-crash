@@ -8,7 +8,8 @@ The lobby MVP is complete when these behaviors work.
 - TV displays a short room code.
 - TV displays a QR code or join URL.
 - TV shows connection status.
-- TV shows an empty game-library state.
+- TV shows registered game modules or an empty game-library state.
+- TV shows the selected game module after host selection.
 
 ## Phone Join
 
@@ -63,6 +64,9 @@ The lobby MVP is complete when these behaviors work.
 - Only the host sees enabled host controls.
 - Regular players cannot select games.
 - Regular players cannot start games.
+- Host can select a registered game shell.
+- Selecting a game shell does not start gameplay.
+- Unknown game IDs are rejected.
 - The host can voluntarily pass host.
 - Passing host changes host server-side.
 
@@ -89,4 +93,3 @@ The lobby MVP is complete when these behaviors work.
 - Phone controls fit at 390 x 844.
 - Long names and messages do not break layout.
 - TV focus states are obvious.
-

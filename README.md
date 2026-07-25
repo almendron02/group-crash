@@ -4,7 +4,7 @@ Group Crash is a web-first second-screen multiplayer game platform for TV and ph
 
 The TV shows the shared lobby and game experience. Players scan a QR code, join from their phones, send quick messages, request host control, vote on host changes, and eventually use their phones as private controllers for modular party games.
 
-The first development milestone is the lobby only. No playable games are included yet.
+The current development milestone is the lobby plus a modular game registry shell. No playable games are included yet.
 
 ## MVP Scope
 
@@ -17,7 +17,9 @@ The lobby MVP includes:
 - Host request and majority host-transfer vote
 - Voluntary room leave with automatic host reassignment
 - Quick messages from phones to the TV lobby
-- Empty game library state
+- Modular game registry shell with a non-playable `Demo Crash` module
+- Host-only game selection
+- Selected game display on TV and host controller
 - Server-authoritative room state
 - Reconnectable player sessions
 
@@ -100,10 +102,10 @@ group-crash/
 2. Add local lobby interaction without networking.
 3. Connect TV and phones through the server.
 4. Harden reconnect grace, room expiration, and tests.
-5. Add runtime schema validation.
-6. Add a game module contract after the lobby is stable.
+5. Add modular game registry shell.
+6. Build the first playable game module.
 7. Package the TV client for Google TV after the browser version works reliably.
 
 ## Current Status
 
-Milestone 3 is in progress. The TV and phone controller now connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, and host transfer. The TV lobby remains display-only; player actions live in the phone controller flow. No games are implemented yet.
+Milestone 5 is in progress. The TV and phone controller connect to an authoritative in-memory WebSocket server for room creation, joining, shouts, host requests, host votes, host transfer, reconnect grace, room expiration, and host-only game selection. The first registered module is `Demo Crash`, a non-playable shell used to prove the modular registry path before real games are implemented.

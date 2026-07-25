@@ -116,6 +116,9 @@ export function App() {
   const hostCandidates = displayRoom.players.filter(
     (player) => player.wantsHost && !player.isHost
   );
+  const selectedGame = displayRoom.availableGames.find(
+    (game) => game.id === displayRoom.selectedGameId
+  );
   const visibleMessages = [...displayRoom.messages]
     .slice(displayRoom.activeHostVote ? -3 : -8)
     .reverse();
@@ -141,11 +144,33 @@ export function App() {
             roomCode={roomCode}
             joinUrl={joinUrl}
           />
-          <EmptyGameCard
-            title="No games added yet"
-            subtitle="The host will choose from this shelf once games are installed."
-            icon={<Gamepad2 aria-hidden="true" />}
-          />
+          {selectedGame ? (
+            <section className="tv-game-module" aria-label="Selected game">
+              <span className="tv-game-icon">
+                <Gamepad2 aria-hidden="true" />
+              </span>
+              <div>
+                <Badge tone="yellow">Selected module</Badge>
+                <h2>{selectedGame.name}</h2>
+                <p>{selectedGame.tagline}</p>
+                <small>
+                  {selectedGame.status === "shell"
+                    ? "Placeholder screen only"
+                    : `${selectedGame.minPlayers}-${selectedGame.maxPlayers} players`}
+                </small>
+              </div>
+            </section>
+          ) : (
+            <EmptyGameCard
+              title={displayRoom.gamesAvailable ? "Pick a game shell" : "No games added yet"}
+              subtitle={
+                displayRoom.gamesAvailable
+                  ? "The host can select a registered module from their phone."
+                  : "The host will choose from this shelf once games are installed."
+              }
+              icon={<Gamepad2 aria-hidden="true" />}
+            />
+          )}
         </aside>
 
         <section className="tv-players panel" aria-label="Connected players">

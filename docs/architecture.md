@@ -45,6 +45,7 @@ packages/
   game-sdk/
 
 games/
+  demo-crash/
 ```
 
 ## TV App
@@ -57,7 +58,7 @@ Responsibilities:
 - Show player presence
 - Show quick messages
 - Show host status and votes
-- Show empty game library
+- Show available game modules, selected game shell, or empty game library
 - Support keyboard/D-pad style focus
 
 The TV app should not contain authoritative lobby rules.
@@ -74,6 +75,7 @@ Responsibilities:
 - Request host
 - Vote on host proposals
 - Show host controls if current player is host
+- Select registered game modules if current player is host
 - Reconnect using a private token
 
 The phone app sends player intentions to the server.
@@ -91,6 +93,8 @@ Responsibilities:
 - Start and resolve host votes
 - Handle reconnect tokens
 - Rate-limit messages
+- Register game manifests
+- Validate host-only game selection
 - Broadcast public snapshots
 - Send private player state only to the correct player
 
@@ -105,7 +109,8 @@ Public TV state can include:
 - Current host
 - Active vote summary
 - Latest messages
-- Empty game-library state
+- Available game manifests
+- Selected game module
 
 Private player state can include:
 
@@ -118,7 +123,15 @@ Do not send private state for all players to every client.
 
 ## Game Module Boundary
 
-No games are included in the lobby MVP, but the architecture should leave room for modular games later.
+No playable games are included in the lobby MVP, but the architecture now includes a modular game registry shell.
+
+The first registered shell is:
+
+```text
+games/demo-crash
+```
+
+`Demo Crash` exposes a manifest and placeholder state. It is not playable; it exists to prove that the server can register game modules and let the current host select one.
 
 Future game modules should define:
 

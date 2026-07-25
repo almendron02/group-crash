@@ -58,9 +58,25 @@ export interface RoomSnapshot {
   players: PublicPlayer[];
   messages: LobbyMessage[];
   activeHostVote: HostVote | null;
+  availableGames: GameManifest[];
   playerCount: number;
   maxPlayers: number;
   gamesAvailable: boolean;
+  selectedGameId: string | null;
+}
+```
+
+Game manifests describe registered modules:
+
+```ts
+export interface GameManifest {
+  id: string;
+  name: string;
+  tagline: string;
+  description: string;
+  minPlayers: number;
+  maxPlayers: number;
+  status: "shell" | "playable" | "coming_soon";
 }
 ```
 
@@ -78,7 +94,8 @@ export type ClientEvent =
   | { type: "message.send"; payload: SendMessagePayload }
   | { type: "host.request"; payload: HostRequestPayload }
   | { type: "host.vote.cast"; payload: CastHostVotePayload }
-  | { type: "host.pass"; payload: PassHostPayload };
+  | { type: "host.pass"; payload: PassHostPayload }
+  | { type: "game.select"; payload: SelectGamePayload };
 ```
 
 Payloads:
@@ -133,6 +150,12 @@ export interface PassHostPayload {
   hostPlayerId: string;
   targetPlayerId?: string;
 }
+
+export interface SelectGamePayload {
+  roomCode: string;
+  hostPlayerId: string;
+  gameId: string;
+}
 ```
 
 ## Server Events
@@ -152,6 +175,7 @@ export type ServerEvent =
   | { type: "host.vote.started"; payload: HostVote }
   | { type: "host.vote.updated"; payload: HostVote }
   | { type: "host.vote.completed"; payload: HostVoteCompletedPayload }
+  | { type: "game.selected"; payload: GameSelectedPayload }
   | { type: "room.closed"; payload: RoomClosedPayload }
   | { type: "error"; payload: ServerErrorPayload };
 ```
@@ -200,6 +224,12 @@ export interface RoomClosedPayload {
   reason: "tv_disconnected" | "expired" | "server_shutdown";
 }
 
+export interface GameSelectedPayload {
+  roomCode: string;
+  gameId: string;
+  selectedByPlayerId: string;
+}
+
 export interface ServerErrorPayload {
   code:
     | "ROOM_NOT_FOUND"
@@ -210,6 +240,7 @@ export interface ServerErrorPayload {
     | "RATE_LIMITED"
     | "NOT_HOST"
     | "VOTE_NOT_FOUND"
+    | "GAME_NOT_FOUND"
     | "NOT_ELIGIBLE"
     | "UNKNOWN";
   message: string;

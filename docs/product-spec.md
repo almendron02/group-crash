@@ -28,7 +28,8 @@ The TV lobby must show:
 - Players who want host
 - Live quick-message feed
 - Host-transfer vote when active
-- Empty game-library state
+- Registered game modules or empty game-library state
+- Selected game module when the host chooses one
 - Player count
 - Connection status
 
@@ -66,8 +67,8 @@ The host phone lobby must also show:
 
 - Host badge
 - Game-selection area
-- Empty game-library state
-- Disabled start control while no games exist
+- Registered game module list
+- Disabled start control while no playable games exist
 - Pass-host control
 
 ## Chess Avatars
@@ -113,3 +114,14 @@ The lobby should demonstrate:
 - Strong visual design implementation
 - Modular platform planning
 
+## Game Registry Shell
+
+The first registry module is `Demo Crash`.
+
+`Demo Crash` is intentionally non-playable. It exists to prove:
+
+- Game modules can expose manifests.
+- The server can register available modules.
+- Only the current host can select a module.
+- TV and phone clients receive selected game state through room snapshots.
+- The start control can stay disabled until a playable module exists.

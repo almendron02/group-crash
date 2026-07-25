@@ -262,6 +262,67 @@ input {
   white-space: nowrap;
 }
 
+.tv-game-module {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(8px, 0.8vw, 12px);
+  min-height: 0;
+  padding: clamp(12px, 1.1vw, 18px);
+  color: var(--gc-ink);
+  background: var(--gc-cream);
+  border: 3px solid var(--gc-ink);
+  border-radius: clamp(18px, 1.65vw, 28px);
+  box-shadow: 5px 5px 0 var(--gc-ink);
+  overflow: hidden;
+}
+
+.tv-game-icon {
+  display: grid;
+  place-items: center;
+  width: clamp(38px, 3.1vw, 54px);
+  height: clamp(38px, 3.1vw, 54px);
+  color: var(--gc-ink);
+  background: var(--gc-yellow);
+  border: 2px solid var(--gc-ink);
+  border-radius: 50%;
+}
+
+.tv-game-icon svg {
+  width: clamp(20px, 1.8vw, 28px);
+  height: clamp(20px, 1.8vw, 28px);
+  stroke-width: 3px;
+}
+
+.tv-game-module h2 {
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: var(--gc-ink);
+  font-family: var(--gc-font-display);
+  font-size: clamp(20px, 1.8vw, 30px);
+  font-weight: 900;
+  line-height: 0.94;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-game-module p,
+.tv-game-module small {
+  display: block;
+  overflow: hidden;
+  margin: 4px 0 0;
+  font-size: clamp(11px, 0.95vw, 14px);
+  font-weight: 900;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-game-module small {
+  color: var(--gc-red);
+  text-transform: uppercase;
+}
+
 .tv-stage .gc-logo-tv {
   font-size: clamp(42px, 4.6vw, 86px);
   text-shadow: 3px 3px 0 var(--gc-ink);

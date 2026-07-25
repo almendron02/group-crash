@@ -1,5 +1,5 @@
 {
-  "name": "@group-crash/protocol",
+  "name": "@group-crash/demo-crash",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,6 +11,6 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@group-crash/game-engine": "workspace:*"
+    "@group-crash/game-sdk": "workspace:*"
   }
 }
